@@ -18,9 +18,11 @@ function resolveOptions(options: ConvertOptions): {
   planOpt: PlanOptions;
   serializeOpt: SerializeOptions;
 } {
+  const parseOpt = { ...DEFAULT_PARSE_OPTIONS, ...options.parse };
+
   return {
-    parseOpt: { ...DEFAULT_PARSE_OPTIONS, ...options.parse },
-    normalizeOpt: { ...options.normalize },
+    parseOpt,
+    normalizeOpt: { mode: parseOpt.mode, ...options.normalize },
     planOpt: {
       ...DEFAULT_PLAN_OPTIONS,
       ...options.plan,
@@ -33,9 +35,9 @@ function resolveOptions(options: ConvertOptions): {
 /** One-step conversion composed from parse, normalize, plan, and serialize. Unset options fall back to defaults. */
 export function convert(text: string, options: ConvertOptions = {}): ConvertResult {
   const { parseOpt, normalizeOpt, planOpt, serializeOpt } = resolveOptions(options);
-  const { document, diagnostics } = parseLrc(text, parseOpt);
-  const normalized = normalizeLyrics(document, normalizeOpt);
+  const { document, diagnostics: parseDiagnostics } = parseLrc(text, parseOpt);
+  const { normalized, diagnostics: normalizeDiagnostics } = normalizeLyrics(document, normalizeOpt);
   const ass = planEvents(normalized, planOpt);
   const serialized = serializeAss(ass, serializeOpt);
-  return { ass, text: serialized, diagnostics };
+  return { ass, text: serialized, diagnostics: [...parseDiagnostics, ...normalizeDiagnostics] };
 }

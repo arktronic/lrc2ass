@@ -1,5 +1,5 @@
 import type { Diagnostic } from './diagnostics.js';
-import type { EnhancedSegment } from './lrc.js';
+import type { EnhancedSegment, ValidationMode } from './lrc.js';
 import type { AssAlignment, AssDocument, KaraokeEffect } from './ass.js';
 
 export type OverlapPolicy = 'preserve' | 'truncate' | 'error';
@@ -16,10 +16,16 @@ export interface NormalizedLyrics {
 }
 
 export interface NormalizeOptions {
+  mode?: ValidationMode;
   offsetMs?: number;
   overlapPolicy?: OverlapPolicy;
   trackEndMs?: number;
   defaultTrailingDurationMs?: number;
+}
+
+export interface NormalizeResult {
+  normalized: NormalizedLyrics;
+  diagnostics: Diagnostic[];
 }
 
 export interface InterludeOptions {

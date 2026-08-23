@@ -23,13 +23,16 @@ describe('convert', () => {
   const diagnostics: Diagnostic[] = [
     { code: 'test', message: 'test diagnostic', severity: 'warning' },
   ];
+  const normalizeDiagnostics: Diagnostic[] = [
+    { code: 'normalize-test', message: 'normalize diagnostic', severity: 'warning' },
+  ];
   const normalized: NormalizedLyrics = { occurrences: [] };
   const ass: AssDocument = { scriptInfo: { playResX: 384, playResY: 288 }, styles: [], events: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockedParseLrc.mockReturnValue({ document, diagnostics });
-    mockedNormalizeLyrics.mockReturnValue(normalized);
+    mockedNormalizeLyrics.mockReturnValue({ normalized, diagnostics: normalizeDiagnostics });
     mockedPlanEvents.mockReturnValue(ass);
     mockedSerializeAss.mockReturnValue('serialized-ass-text');
   });
@@ -43,16 +46,21 @@ describe('convert', () => {
     expect(mockedSerializeAss).toHaveBeenCalledWith(ass, expect.anything());
   });
 
-  it('returns the planned ASS document, serialized text, and parse diagnostics', () => {
+  it('returns the planned ASS document, serialized text, and merged diagnostics', () => {
     const result = convert('lrc text', {});
 
-    expect(result).toEqual({ ass, text: 'serialized-ass-text', diagnostics });
+    expect(result).toEqual({
+      ass,
+      text: 'serialized-ass-text',
+      diagnostics: [...diagnostics, ...normalizeDiagnostics],
+    });
   });
 
   it('applies default parse and plan options when none are provided', () => {
     convert('lrc text', {});
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', DEFAULT_PARSE_OPTIONS);
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: DEFAULT_PARSE_OPTIONS.mode });
     expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS);
   });
 
@@ -60,6 +68,7 @@ describe('convert', () => {
     convert('lrc text');
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', DEFAULT_PARSE_OPTIONS);
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: DEFAULT_PARSE_OPTIONS.mode });
     expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS);
   });
 
@@ -67,6 +76,13 @@ describe('convert', () => {
     convert('lrc text', { parse: { mode: 'strict' } });
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', { mode: 'strict' });
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: 'strict' });
+  });
+
+  it('lets caller-provided normalize mode override parse mode', () => {
+    convert('lrc text', { parse: { mode: 'strict' }, normalize: { mode: 'tolerant' } });
+
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: 'tolerant' });
   });
 
   it('lets caller-provided plan options override the defaults', () => {

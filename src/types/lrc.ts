@@ -1,6 +1,6 @@
 import type { Diagnostic, SourceLocation } from './diagnostics.js';
 
-export type ParseMode = 'strict' | 'tolerant';
+export type ValidationMode = 'strict' | 'tolerant';
 
 export interface LrcTimestamp {
   /** Milliseconds from the start of the track. */
@@ -38,7 +38,7 @@ export interface LrcDocument {
 }
 
 export interface ParseOptions {
-  mode: ParseMode;
+  mode: ValidationMode;
 }
 
 export interface ParseResult {

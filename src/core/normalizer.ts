@@ -1,4 +1,4 @@
-import type { LrcDocument, NormalizeOptions, NormalizedLyrics } from '../types/index.js';
+import type { LrcDocument, NormalizeOptions, NormalizeResult } from '../types/index.js';
 
 /**
  * Applies offsets, expands repeated timestamps, and infers occurrence boundaries.
@@ -7,6 +7,6 @@ import type { LrcDocument, NormalizeOptions, NormalizedLyrics } from '../types/i
 export function normalizeLyrics(
   _document: LrcDocument,
   _options: NormalizeOptions,
-): NormalizedLyrics {
+): NormalizeResult {
   throw new Error('normalizeLyrics: not implemented');
 }
