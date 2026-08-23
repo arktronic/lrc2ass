@@ -75,4 +75,13 @@ describe('convert', () => {
 
     expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, { karaokeEffect: 'sweep', layout });
   });
+
+  it('lets caller override only part of plan layout while preserving defaults', () => {
+    convert('lrc text', { plan: { layout: { alignment: 8 } } });
+
+    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, {
+      ...DEFAULT_PLAN_OPTIONS,
+      layout: { ...DEFAULT_PLAN_OPTIONS.layout, alignment: 8 },
+    });
+  });
 });

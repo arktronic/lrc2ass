@@ -45,6 +45,13 @@ export interface PlanOptions {
   preset?: 'single-line' | 'multi-line';
 }
 
+export interface PlanOverrideOptions {
+  karaokeEffect?: KaraokeEffect;
+  layout?: Partial<LayoutOptions>;
+  interlude?: InterludeOptions;
+  preset?: 'single-line' | 'multi-line';
+}
+
 export interface SerializeOptions {
   includeMetadataComments?: boolean;
 }
@@ -52,7 +59,7 @@ export interface SerializeOptions {
 export interface ConvertOptions {
   parse?: import('./lrc.js').ParseOptions;
   normalize?: NormalizeOptions;
-  plan?: PlanOptions;
+  plan?: PlanOverrideOptions;
   serialize?: SerializeOptions;
 }
 
