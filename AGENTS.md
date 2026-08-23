@@ -4,6 +4,7 @@
 - Focus on simplicity (KISS) and readability
 - Code should be testable and tested, where appropriate
 - Use best practices, but defer to existing code conventions when in doubt
+- For execution of build/test/etc. tasks, prefer harness-provided tools, then project-defined calls (such as package.json scripts), then global environment tools, in that order.
 
 # CRITICAL — NON-NEGOTIABLE RULE — DO NOT SKIP OR SUMMARIZE
 
