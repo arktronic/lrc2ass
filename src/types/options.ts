@@ -1,5 +1,5 @@
 import type { Diagnostic } from './diagnostics.js';
-import type { EnhancedSegment, ValidationMode } from './lrc.js';
+import type { EnhancedSegment, ParseOptions, ValidationMode } from './lrc.js';
 import type { AssAlignment, AssDocument, KaraokeEffect } from './ass.js';
 
 export type OverlapPolicy = 'preserve' | 'truncate' | 'error';
@@ -62,8 +62,10 @@ export interface SerializeOptions {
   includeMetadataComments?: boolean;
 }
 
+export type ParseOverrideOptions = Partial<ParseOptions>;
+
 export interface ConvertOptions {
-  parse?: import('./lrc.js').ParseOptions;
+  parse?: ParseOverrideOptions;
   normalize?: NormalizeOptions;
   plan?: PlanOverrideOptions;
   serialize?: SerializeOptions;
