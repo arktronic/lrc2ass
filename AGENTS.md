@@ -37,6 +37,7 @@ Writing "None identified" when ambiguities exist is a violation of this rule. En
 If you are uncertain about intent, scope, approach, or next steps — **ask the user.** Do not guess, stall silently, or abandon the task.
 
 Asking is always the right fallback. It is better to prompt the user with a clear, targeted question than to:
+
 - Make an assumption that turns out to be wrong
 - Do nothing and leave the task incomplete
 - Proceed in a direction the user did not intend
