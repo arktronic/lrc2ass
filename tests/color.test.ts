@@ -21,4 +21,10 @@ describe('assColorFromHex', () => {
   it('rejects out-of-range opacity', () => {
     expect(() => assColorFromHex('#FFFFFF', 2)).toThrow(/opacity must be/);
   });
+
+  it('rejects non-finite opacity', () => {
+    expect(() => assColorFromHex('#FFFFFF', Number.NaN)).toThrow(/opacity must be/);
+    expect(() => assColorFromHex('#FFFFFF', Number.POSITIVE_INFINITY)).toThrow(/opacity must be/);
+    expect(() => assColorFromHex('#FFFFFF', Number.NEGATIVE_INFINITY)).toThrow(/opacity must be/);
+  });
 });

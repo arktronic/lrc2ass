@@ -12,7 +12,7 @@ export function assColorFromHex(hex: string, opacity = 1): AssColor {
   if (!match) {
     throw new RangeError(`hex must be a "#RRGGBB" string, received: ${hex}`);
   }
-  if (opacity < 0 || opacity > 1) {
+  if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) {
     throw new RangeError(`opacity must be between 0 and 1, received: ${opacity}`);
   }
 
