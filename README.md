@@ -1,5 +1,7 @@
 # lrc2ass
 
+[![CI](https://github.com/arktronic/lrc2ass/actions/workflows/ci.yml/badge.svg)](https://github.com/arktronic/lrc2ass/actions/workflows/ci.yml)
+
 A TypeScript library and Node.js CLI for converting LRC lyrics into readable, libass-compatible ASS karaoke subtitles.
 
 ## Planned Capabilities
