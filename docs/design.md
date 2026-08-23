@@ -27,7 +27,7 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 
 ## Core Decisions
 
-- The core has no runtime dependencies or Node.js APIs. It supports ESM, CommonJS, browsers, and other modern JavaScript runtimes.
+- The core has no runtime dependencies or Node.js APIs. It supports ESM, browsers, and other modern JavaScript runtimes.
 - LRC and ASS models are public and editable. The LRC model preserves source order, locations, multiple timestamps, and recoverable unknown entries, but need not reproduce the original bytes.
 - Parsing requires an explicit `strict` or `tolerant` mode. Recoverable source problems use stable structured diagnostics; exceptions are reserved for API misuse and broken invariants.
 - Times use integer milliseconds until conversion to ASS centiseconds.
@@ -69,4 +69,4 @@ Options remain typed, declarative, and serializable. Advanced callers can edit t
 
 ## Verification
 
-Tests should cover parsing and recovery, timing inference, event planning, deterministic serialization, staged/one-step equivalence, ESM/CommonJS loading, browser use, and selected libass rendering fixtures.
+Tests should cover parsing and recovery, timing inference, event planning, deterministic serialization, staged/one-step equivalence, ESM loading, browser use, and selected libass rendering fixtures.
