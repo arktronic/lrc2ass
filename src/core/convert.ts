@@ -20,7 +20,8 @@ function resolveOptions(options: ConvertOptions): {
   planOverrideOpt: PlanOverrideOptions | undefined;
   serializeOpt: SerializeOptions;
 } {
-  const parseOpt = { ...DEFAULT_PARSE_OPTIONS, ...options.parse };
+  const { mode: parseMode, ...parseRest } = options.parse ?? {};
+  const parseOpt = { ...parseRest, mode: parseMode ?? DEFAULT_PARSE_OPTIONS.mode };
   const { mode: normalizeMode, ...normalizeRest } = options.normalize ?? {};
 
   return {

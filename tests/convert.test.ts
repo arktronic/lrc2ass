@@ -11,7 +11,7 @@ import { normalizeLyrics } from '../src/core/normalizer.js';
 import { planEvents } from '../src/core/planner.js';
 import { serializeAss } from '../src/core/serializer.js';
 import { DEFAULT_PARSE_OPTIONS, DEFAULT_PLAN_OPTIONS } from '../src/core/defaults.js';
-import type { AssDocument, Diagnostic, LrcDocument, NormalizedLyrics } from '../src/index.js';
+import type { AssDocument, Diagnostic, LrcDocument, NormalizedLyrics, ParseOptions } from '../src/index.js';
 
 const mockedParseLrc = vi.mocked(parseLrc);
 const mockedNormalizeLyrics = vi.mocked(normalizeLyrics);
@@ -77,6 +77,19 @@ describe('convert', () => {
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', { mode: 'strict' });
     expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: 'strict' });
+  });
+
+  it('treats parse mode undefined as unset', () => {
+    convert('lrc text', {
+      parse: { mode: undefined } as unknown as ParseOptions,
+      normalize: { offsetMs: 10 },
+    });
+
+    expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', { mode: DEFAULT_PARSE_OPTIONS.mode });
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, {
+      mode: DEFAULT_PARSE_OPTIONS.mode,
+      offsetMs: 10,
+    });
   });
 
   it('lets caller-provided normalize mode override parse mode', () => {
