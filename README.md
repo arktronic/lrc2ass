@@ -19,6 +19,6 @@ The dependency-free vanilla JS core is intended for all modern JavaScript runtim
 
 ## Status
 
-The project is currently in the design phase. Its package, API, and CLI have not yet been implemented or published.
+The project is in early implementation and is not published yet.
 
 See [the design document](docs/design.md) for scope, architecture, and conversion decisions.

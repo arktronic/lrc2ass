@@ -42,7 +42,7 @@ describe('convert', () => {
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', expect.anything());
     expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, expect.anything());
-    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, expect.anything());
+    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, expect.anything(), undefined);
     expect(mockedSerializeAss).toHaveBeenCalledWith(ass, expect.anything());
   });
 
@@ -61,7 +61,7 @@ describe('convert', () => {
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', DEFAULT_PARSE_OPTIONS);
     expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: DEFAULT_PARSE_OPTIONS.mode });
-    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS);
+    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS, undefined);
   });
 
   it('applies defaults when no options object is passed at all', () => {
@@ -69,7 +69,7 @@ describe('convert', () => {
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', DEFAULT_PARSE_OPTIONS);
     expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: DEFAULT_PARSE_OPTIONS.mode });
-    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS);
+    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS, undefined);
   });
 
   it('lets caller-provided parse options override the defaults', () => {
@@ -85,19 +85,30 @@ describe('convert', () => {
     expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: 'tolerant' });
   });
 
+  it('treats normalize mode undefined as unset', () => {
+    convert('lrc text', { parse: { mode: 'strict' }, normalize: { mode: undefined, offsetMs: 25 } });
+
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, {
+      mode: 'strict',
+      offsetMs: 25,
+    });
+  });
+
   it('lets caller-provided plan options override the defaults', () => {
     const layout = { ...DEFAULT_PLAN_OPTIONS.layout, alignment: 8 as const };
     convert('lrc text', { plan: { karaokeEffect: 'sweep', layout } });
 
-    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, { karaokeEffect: 'sweep', layout });
+    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS, {
+      karaokeEffect: 'sweep',
+      layout,
+    });
   });
 
   it('lets caller override only part of plan layout while preserving defaults', () => {
     convert('lrc text', { plan: { layout: { alignment: 8 } } });
 
-    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, {
-      ...DEFAULT_PLAN_OPTIONS,
-      layout: { ...DEFAULT_PLAN_OPTIONS.layout, alignment: 8 },
+    expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS, {
+      layout: { alignment: 8 },
     });
   });
 });

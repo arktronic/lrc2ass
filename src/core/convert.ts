@@ -3,6 +3,7 @@ import type {
   ConvertResult,
   NormalizeOptions,
   ParseOptions,
+  PlanOverrideOptions,
   PlanOptions,
   SerializeOptions,
 } from '../types/index.js';
@@ -15,29 +16,31 @@ import { DEFAULT_PARSE_OPTIONS, DEFAULT_PLAN_OPTIONS } from './defaults.js';
 function resolveOptions(options: ConvertOptions): {
   parseOpt: ParseOptions;
   normalizeOpt: NormalizeOptions;
-  planOpt: PlanOptions;
+  planBaseOpt: PlanOptions;
+  planOverrideOpt: PlanOverrideOptions | undefined;
   serializeOpt: SerializeOptions;
 } {
   const parseOpt = { ...DEFAULT_PARSE_OPTIONS, ...options.parse };
+  const { mode: normalizeMode, ...normalizeRest } = options.normalize ?? {};
 
   return {
     parseOpt,
-    normalizeOpt: { mode: parseOpt.mode, ...options.normalize },
-    planOpt: {
+    normalizeOpt: { ...normalizeRest, mode: normalizeMode ?? parseOpt.mode },
+    planBaseOpt: {
       ...DEFAULT_PLAN_OPTIONS,
-      ...options.plan,
-      layout: { ...DEFAULT_PLAN_OPTIONS.layout, ...options.plan?.layout },
+      layout: { ...DEFAULT_PLAN_OPTIONS.layout },
     },
+    planOverrideOpt: options.plan,
     serializeOpt: { ...options.serialize },
   };
 }
 
 /** One-step conversion composed from parse, normalize, plan, and serialize. Unset options fall back to defaults. */
 export function convert(text: string, options: ConvertOptions = {}): ConvertResult {
-  const { parseOpt, normalizeOpt, planOpt, serializeOpt } = resolveOptions(options);
+  const { parseOpt, normalizeOpt, planBaseOpt, planOverrideOpt, serializeOpt } = resolveOptions(options);
   const { document, diagnostics: parseDiagnostics } = parseLrc(text, parseOpt);
   const { normalized, diagnostics: normalizeDiagnostics } = normalizeLyrics(document, normalizeOpt);
-  const ass = planEvents(normalized, planOpt);
+  const ass = planEvents(normalized, planBaseOpt, planOverrideOpt);
   const serialized = serializeAss(ass, serializeOpt);
   return { ass, text: serialized, diagnostics: [...parseDiagnostics, ...normalizeDiagnostics] };
 }

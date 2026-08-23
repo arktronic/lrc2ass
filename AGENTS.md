@@ -1,10 +1,17 @@
 # General guidelines
 
-- Clear and concise is always better than wordy and overly detailed
-- Focus on simplicity (KISS) and readability
-- Code should be testable and tested, where appropriate
-- Use best practices, but defer to existing code conventions when in doubt
+- Clear and concise is always better than wordy and overly detailed.
+- Focus on simplicity (KISS) and readability.
+- Code should be testable and tested, where appropriate.
+- Use best practices, but defer to existing code conventions when in doubt.
 - For execution of build/test/etc. tasks, prefer harness-provided tools, then project-defined calls (such as package.json scripts), then global environment tools, in that order.
+- When project status changes meaningfully (e.g., implementation starts, features added, etc.) make sure to update all relevant docs and comments.
+- Match documentation depth to location: concise in README, more detailed in design docs or internal notes.
+
+# Codebase-specific guidelines
+
+- When combining defaults, presets, and caller options, preserve raw caller overrides until preset resolution so explicit caller values always win.
+- When inheriting options across stages, treat undefined override values as unset so they do not wipe inherited defaults.
 
 # CRITICAL — NON-NEGOTIABLE RULE — DO NOT SKIP OR SUMMARIZE
 
