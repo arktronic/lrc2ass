@@ -90,6 +90,9 @@ describe('normalizeLyrics', () => {
       };
 
       const result = normalizeLyrics(document, { offsetMs: 0, defaultTrailingDurationMs: 1000 });
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({ code: 'LRC_INVALID_TIMING_METADATA', severity: 'warning' }),
+      ]);
       expect(result.normalized.occurrences[0].startMs).toBe(1000);
       expect(result.normalized.occurrences[0].endMs).toBe(2000);
     }
@@ -793,5 +796,55 @@ describe('normalizeLyrics', () => {
       expect(tolerantRes.normalized.occurrences[0].startMs).toBe(1500); // 1000 + metadata 500
       expect(tolerantRes.normalized.occurrences[0].endMs).toBe(2500);
     }
+  });
+
+  it('reports invalid timing metadata and fails in strict mode', () => {
+    const document: LrcDocument = {
+      metadata: { offset: 'soon', length: 'later', t_time: 'eventually' },
+      lines: [{
+        timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+        text: 'Hello',
+        location: { line: 1, column: 1 },
+      }],
+      unknownEntries: [],
+    };
+
+    const tolerant = normalizeLyrics(document, { defaultTrailingDurationMs: 1000 });
+    const strict = normalizeLyrics(document, { mode: 'strict' });
+
+    expect(tolerant.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'LRC_INVALID_TIMING_METADATA',
+      'LRC_INVALID_TIMING_METADATA',
+      'LRC_INVALID_TIMING_METADATA',
+    ]);
+    expect(tolerant.normalized.occurrences[0].endMs).toBe(2000);
+    expect(strict.diagnostics).toHaveLength(3);
+    expect(strict.normalized.occurrences).toEqual([]);
+  });
+
+  it('reports an impossible final duration bound and uses fallback timing in tolerant mode', () => {
+    const document: LrcDocument = {
+      metadata: { length: '00:01' },
+      lines: [{
+        timestamps: [{ timeMs: 2000, location: { line: 1, column: 1 } }],
+        text: 'Late lyric',
+        location: { line: 1, column: 1 },
+      }],
+      unknownEntries: [],
+    };
+
+    const tolerant = normalizeLyrics(document, { defaultTrailingDurationMs: 1000 });
+    const strict = normalizeLyrics(document, { mode: 'strict', defaultTrailingDurationMs: 1000 });
+
+    expect(tolerant.diagnostics[0]).toMatchObject({
+      code: 'LRC_FINAL_DURATION_BEFORE_LYRIC',
+      severity: 'warning',
+    });
+    expect(tolerant.normalized.occurrences[0].endMs).toBe(3000);
+    expect(strict.diagnostics[0]).toMatchObject({
+      code: 'LRC_FINAL_DURATION_BEFORE_LYRIC',
+      severity: 'error',
+    });
+    expect(strict.normalized.occurrences).toEqual([]);
   });
 });

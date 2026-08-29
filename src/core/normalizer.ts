@@ -7,8 +7,7 @@ import type {
   Occurrence,
   SourceLocation,
 } from '../types/index.js';
-
-const DEFAULT_TRAILING_DURATION_MS = 5000;
+import { DEFAULT_TRAILING_DURATION_MS } from './defaults.js';
 
 interface UnresolvedOccurrence {
   startMs: number;
@@ -39,16 +38,16 @@ function parseLengthMetadata(value: string | undefined): number | undefined {
   return undefined;
 }
 
-function parseOffsetMetadata(value: string | undefined): number {
-  if (!value) {
+function parseOffsetMetadata(value: string | undefined): number | undefined {
+  if (value === undefined) {
     return 0;
   }
   const trimmed = value.trim();
   if (!/^[-+]?\d+$/.test(trimmed)) {
-    return 0;
+    return undefined;
   }
   const parsed = Number.parseInt(trimmed, 10);
-  return Number.isSafeInteger(parsed) ? parsed : 0;
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 function shiftSegments(segments: EnhancedSegment[], shiftMs: number): EnhancedSegment[] {
@@ -70,9 +69,29 @@ export function normalizeLyrics(
 ): NormalizeResult {
   const mode = options.mode ?? 'tolerant';
   const overlapPolicy = options.overlapPolicy ?? 'preserve';
-  const metadataOffsetMs = parseOffsetMetadata(document.metadata.offset);
-
   const diagnostics: Diagnostic[] = [];
+  const parsedMetadataOffsetMs = parseOffsetMetadata(document.metadata.offset);
+  const metadataOffsetMs = parsedMetadataOffsetMs ?? 0;
+  const metadataLengthMs = parseLengthMetadata(document.metadata.length);
+  const metadataTrackTimeMs = parseLengthMetadata(document.metadata.t_time);
+
+  const reportInvalidMetadata = (key: string, value: string): void => {
+    diagnostics.push({
+      code: 'LRC_INVALID_TIMING_METADATA',
+      message: `Metadata ${key} has an invalid timing value: "${value}".`,
+      severity: mode === 'strict' ? 'error' : 'warning',
+    });
+  };
+
+  if (document.metadata.offset !== undefined && parsedMetadataOffsetMs === undefined) {
+    reportInvalidMetadata('offset', document.metadata.offset);
+  }
+  if (document.metadata.length !== undefined && metadataLengthMs === undefined) {
+    reportInvalidMetadata('length', document.metadata.length);
+  }
+  if (document.metadata.t_time !== undefined && metadataTrackTimeMs === undefined) {
+    reportInvalidMetadata('t_time', document.metadata.t_time);
+  }
 
   // Validate caller offsetMs
   let callerOffsetMs = 0;
@@ -239,7 +258,14 @@ export function normalizeLyrics(
     nextDistinctStarts[i] = nextDistinct;
   }
 
-  const metadataLengthMs = parseLengthMetadata(document.metadata.length) ?? parseLengthMetadata(document.metadata.t_time);
+  const finalDurationBoundMs = metadataLengthMs ?? metadataTrackTimeMs ?? validatedTrackEndMs;
+  const finalDurationBoundName = metadataLengthMs !== undefined
+    ? 'length metadata'
+    : metadataTrackTimeMs !== undefined
+      ? 't_time metadata'
+      : validatedTrackEndMs !== undefined
+        ? 'trackEndMs'
+        : undefined;
 
   // Infer occurrence boundaries
   const occurrences: Occurrence[] = [];
@@ -270,11 +296,17 @@ export function normalizeLyrics(
           endMs = validatedTrackEndMs;
         }
       }
-    } else if (metadataLengthMs !== undefined && metadataLengthMs > (minEnhancedEndMs ?? curr.startMs)) {
-      endMs = metadataLengthMs;
-    } else if (validatedTrackEndMs !== undefined && validatedTrackEndMs > (minEnhancedEndMs ?? curr.startMs)) {
-      endMs = validatedTrackEndMs;
+    } else if (finalDurationBoundMs !== undefined && finalDurationBoundMs > (minEnhancedEndMs ?? curr.startMs)) {
+      endMs = finalDurationBoundMs;
     } else {
+      if (finalDurationBoundMs !== undefined && finalDurationBoundName) {
+        diagnostics.push({
+          code: 'LRC_FINAL_DURATION_BEFORE_LYRIC',
+          message: `${finalDurationBoundName} (${finalDurationBoundMs}ms) is not later than the final lyric start.`,
+          severity: mode === 'strict' ? 'error' : 'warning',
+          location: curr.location,
+        });
+      }
       endMs = trailingEnhancedEndMs ?? (curr.startMs + defaultTrailingDurationMs);
     }
 
@@ -294,6 +326,13 @@ export function normalizeLyrics(
     }
 
     occurrences.push(occ);
+  }
+
+  if (mode === 'strict' && diagnostics.some((d) => d.severity === 'error')) {
+    return {
+      normalized: { occurrences: [] },
+      diagnostics,
+    };
   }
 
   // Overlap handling
