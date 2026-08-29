@@ -28,24 +28,13 @@ function parseLengthMetadata(value: string | undefined): number | undefined {
     const hours = dotMatch[1] === undefined ? 0 : Number.parseInt(dotMatch[1], 10);
     const minutes = Number.parseInt(dotMatch[2], 10);
     const seconds = Number.parseInt(dotMatch[3], 10);
-    if (seconds > 59) {
-      return undefined;
-    }
-    if (dotMatch[1] !== undefined && minutes > 59) {
+    if (seconds > 59 || (dotMatch[1] !== undefined && minutes > 59)) {
       return undefined;
     }
     const fraction = dotMatch[4];
-    let fractionMs = 0;
-    if (fraction) {
-      if (fraction.length === 1) {
-        fractionMs = Number.parseInt(fraction, 10) * 100;
-      } else if (fraction.length === 2) {
-        fractionMs = Number.parseInt(fraction, 10) * 10;
-      } else {
-        fractionMs = Number.parseInt(fraction, 10);
-      }
-    }
-    return hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + fractionMs;
+    const fractionMs = fraction ? Number.parseInt(fraction.padEnd(3, '0'), 10) : 0;
+    const totalMs = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + fractionMs;
+    return Number.isSafeInteger(totalMs) ? totalMs : undefined;
   }
   return undefined;
 }
@@ -60,6 +49,16 @@ function parseOffsetMetadata(value: string | undefined): number {
   }
   const parsed = Number.parseInt(trimmed, 10);
   return Number.isSafeInteger(parsed) ? parsed : 0;
+}
+
+function shiftSegments(segments: EnhancedSegment[], shiftMs: number): EnhancedSegment[] {
+  if (shiftMs <= 0) {
+    return [...segments];
+  }
+  return segments.map((seg) => ({
+    ...seg,
+    timeMs: Math.max(0, seg.timeMs - shiftMs),
+  }));
 }
 
 /**
@@ -81,19 +80,11 @@ export function normalizeLyrics(
   let defaultTrailingDurationMs = DEFAULT_TRAILING_DURATION_MS;
   if (options.defaultTrailingDurationMs !== undefined) {
     if (!Number.isSafeInteger(options.defaultTrailingDurationMs) || options.defaultTrailingDurationMs < 0) {
-      if (mode === 'strict') {
-        diagnostics.push({
-          code: 'LRC_INVALID_OPTION',
-          message: `defaultTrailingDurationMs must be a non-negative safe integer, received ${options.defaultTrailingDurationMs}.`,
-          severity: 'error',
-        });
-      } else {
-        diagnostics.push({
-          code: 'LRC_INVALID_OPTION',
-          message: `defaultTrailingDurationMs must be a non-negative safe integer, received ${options.defaultTrailingDurationMs}; falling back to ${DEFAULT_TRAILING_DURATION_MS}ms.`,
-          severity: 'warning',
-        });
-      }
+      diagnostics.push({
+        code: 'LRC_INVALID_OPTION',
+        message: `defaultTrailingDurationMs must be a non-negative safe integer, received ${options.defaultTrailingDurationMs}${mode === 'tolerant' ? `; falling back to ${DEFAULT_TRAILING_DURATION_MS}ms.` : '.'}`,
+        severity: mode === 'strict' ? 'error' : 'warning',
+      });
     } else {
       defaultTrailingDurationMs = options.defaultTrailingDurationMs;
     }
@@ -102,18 +93,12 @@ export function normalizeLyrics(
   let validatedTrackEndMs = options.trackEndMs;
   if (options.trackEndMs !== undefined) {
     if (!Number.isSafeInteger(options.trackEndMs) || options.trackEndMs < 0) {
-      if (mode === 'strict') {
-        diagnostics.push({
-          code: 'LRC_INVALID_OPTION',
-          message: `trackEndMs must be a non-negative safe integer, received ${options.trackEndMs}.`,
-          severity: 'error',
-        });
-      } else {
-        diagnostics.push({
-          code: 'LRC_INVALID_OPTION',
-          message: `trackEndMs must be a non-negative safe integer, received ${options.trackEndMs}; ignored.`,
-          severity: 'warning',
-        });
+      diagnostics.push({
+        code: 'LRC_INVALID_OPTION',
+        message: `trackEndMs must be a non-negative safe integer, received ${options.trackEndMs}${mode === 'tolerant' ? '; ignored.' : '.'}`,
+        severity: mode === 'strict' ? 'error' : 'warning',
+      });
+      if (mode === 'tolerant') {
         validatedTrackEndMs = undefined;
       }
     }
@@ -128,124 +113,79 @@ export function normalizeLyrics(
 
   const rawOccurrences: UnresolvedOccurrence[] = [];
 
-  // Check per-line monotonicity across line-level timestamps in document order
-  let previousLineTimeMs: number | undefined;
-  for (const line of document.lines) {
-    if (line.timestamps.length === 0) {
-      continue;
-    }
-
-    // Check line-to-line ordering
-    const firstEffectiveMs = line.timestamps[0].timeMs + totalOffsetMs;
-    if (previousLineTimeMs !== undefined && firstEffectiveMs < previousLineTimeMs) {
-      if (mode === 'strict') {
-        diagnostics.push({
-          code: 'LRC_NON_MONOTONIC_TIMESTAMP',
-          message: `Line timestamp ${firstEffectiveMs}ms is earlier than previous line timestamp ${previousLineTimeMs}ms.`,
-          severity: 'error',
-          location: line.timestamps[0].location ?? line.location,
-        });
-      } else {
-        diagnostics.push({
-          code: 'LRC_NON_MONOTONIC_TIMESTAMP',
-          message: `Line timestamp ${firstEffectiveMs}ms is earlier than previous line timestamp ${previousLineTimeMs}ms; clamped to ${previousLineTimeMs}ms.`,
-          severity: 'warning',
-          location: line.timestamps[0].location ?? line.location,
-        });
-      }
-    }
-    previousLineTimeMs = Math.max(previousLineTimeMs ?? 0, firstEffectiveMs);
-
-    // Check intra-line multi-timestamp monotonicity
-    let prevTs = firstEffectiveMs;
-    for (let t = 1; t < line.timestamps.length; t++) {
-      const currTs = line.timestamps[t].timeMs + totalOffsetMs;
-      if (currTs < prevTs) {
-        if (mode === 'strict') {
-          diagnostics.push({
-            code: 'LRC_NON_MONOTONIC_TIMESTAMP',
-            message: `Timestamp ${currTs}ms is earlier than preceding timestamp ${prevTs}ms on the same line.`,
-            severity: 'error',
-            location: line.timestamps[t].location ?? line.location,
-          });
-        } else {
-          diagnostics.push({
-            code: 'LRC_NON_MONOTONIC_TIMESTAMP',
-            message: `Timestamp ${currTs}ms is earlier than preceding timestamp ${prevTs}ms on the same line; clamped to ${prevTs}ms.`,
-            severity: 'warning',
-            location: line.timestamps[t].location ?? line.location,
-          });
-        }
-      }
-      prevTs = Math.max(prevTs, currTs);
-    }
-  }
-
   let sourceIndex = 0;
-  let runningLineTimeMs: number | undefined;
+  let previousLineTimeMs: number | undefined;
 
   for (const line of document.lines) {
     if (line.timestamps.length === 0) {
       continue;
     }
 
-    let lineStartClamped: number | undefined;
+    let lineLevelPrevTs: number | undefined;
+
     for (let t = 0; t < line.timestamps.length; t++) {
       const ts = line.timestamps[t];
-      let effectiveStartMs = ts.timeMs + totalOffsetMs;
+      const unclampedStartMs = ts.timeMs + totalOffsetMs;
+      let effectiveStartMs = unclampedStartMs;
+      const prevTs = t === 0 ? previousLineTimeMs : lineLevelPrevTs;
 
-      if (mode === 'tolerant') {
-        if (t === 0) {
-          if (runningLineTimeMs !== undefined && effectiveStartMs < runningLineTimeMs) {
-            effectiveStartMs = runningLineTimeMs;
+      // Monotonicity check
+      if (prevTs !== undefined && effectiveStartMs < prevTs) {
+        const isLineLevel = t === 0;
+        const msgPrefix = isLineLevel
+          ? `Line timestamp ${effectiveStartMs}ms is earlier than previous line timestamp ${prevTs}ms`
+          : `Timestamp ${effectiveStartMs}ms is earlier than preceding timestamp ${prevTs}ms on the same line`;
+
+        diagnostics.push({
+          code: 'LRC_NON_MONOTONIC_TIMESTAMP',
+          message: mode === 'strict' ? `${msgPrefix}.` : `${msgPrefix}; clamped to ${prevTs}ms.`,
+          severity: mode === 'strict' ? 'error' : 'warning',
+          location: ts.location ?? line.location,
+        });
+
+        if (mode === 'tolerant') {
+          effectiveStartMs = prevTs;
+        }
+      }
+
+      if (t === 0) {
+        previousLineTimeMs = previousLineTimeMs === undefined ? effectiveStartMs : Math.max(previousLineTimeMs, effectiveStartMs);
+      }
+      lineLevelPrevTs = lineLevelPrevTs === undefined ? effectiveStartMs : Math.max(lineLevelPrevTs, effectiveStartMs);
+
+      let segments = line.enhancedSegments ? [...line.enhancedSegments] : undefined;
+
+      // Shift segments if effective start was clamped upwards by monotonicity
+      if (segments && effectiveStartMs > unclampedStartMs) {
+        segments = shiftSegments(segments, effectiveStartMs - unclampedStartMs);
+      }
+
+      // Negative effective start time handling
+      if (effectiveStartMs < 0) {
+        diagnostics.push({
+          code: 'LRC_NEGATIVE_TIME',
+          message: mode === 'strict'
+            ? `Effective timestamp ${effectiveStartMs}ms is negative after applying offsets.`
+            : `Effective timestamp ${effectiveStartMs}ms is negative after applying offsets; clamped to 0.`,
+          severity: mode === 'strict' ? 'error' : 'warning',
+          location: ts.location ?? line.location,
+        });
+
+        if (mode === 'tolerant') {
+          if (segments) {
+            segments = shiftSegments(segments, -effectiveStartMs);
           }
-          lineStartClamped = effectiveStartMs;
-          runningLineTimeMs = effectiveStartMs;
-        } else {
-          // Repeated timestamp on the same line: clamp against previous timestamp on same line
-          if (lineStartClamped !== undefined && effectiveStartMs < lineStartClamped) {
-            effectiveStartMs = lineStartClamped;
-          }
-          lineStartClamped = effectiveStartMs;
+          effectiveStartMs = 0;
         }
       }
 
       rawOccurrences.push({
         startMs: effectiveStartMs,
         text: line.text,
-        segments: line.enhancedSegments ? [...line.enhancedSegments] : undefined,
+        segments,
         location: ts.location ?? line.location,
         sourceIndex: sourceIndex++,
       });
-    }
-  }
-
-  // Handle negative effective start times
-  for (const occ of rawOccurrences) {
-    if (occ.startMs < 0) {
-      if (mode === 'strict') {
-        diagnostics.push({
-          code: 'LRC_NEGATIVE_TIME',
-          message: `Effective timestamp ${occ.startMs}ms is negative after applying offsets.`,
-          severity: 'error',
-          location: occ.location,
-        });
-      } else {
-        diagnostics.push({
-          code: 'LRC_NEGATIVE_TIME',
-          message: `Effective timestamp ${occ.startMs}ms is negative after applying offsets; clamped to 0.`,
-          severity: 'warning',
-          location: occ.location,
-        });
-        const shiftMs = -occ.startMs;
-        occ.startMs = 0;
-        if (occ.segments && occ.segments.length > 0) {
-          occ.segments = occ.segments.map((seg) => ({
-            ...seg,
-            timeMs: Math.max(0, seg.timeMs - shiftMs),
-          }));
-        }
-      }
     }
   }
 

@@ -354,6 +354,21 @@ describe('normalizeLyrics', () => {
     };
     const res2 = normalizeLyrics(docInvalidMinutes, { defaultTrailingDurationMs: 4000 });
     expect(res2.normalized.occurrences[0].endMs).toBe(54000);
+
+    // Oversized hours overflowing safe integer should fall through to defaultTrailingDurationMs
+    const docOverflowLength: LrcDocument = {
+      metadata: { length: '9999999999999999:00:00' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 50000, location: { line: 1, column: 1 } }],
+          text: 'Ending',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res3 = normalizeLyrics(docOverflowLength, { defaultTrailingDurationMs: 4000 });
+    expect(res3.normalized.occurrences[0].endMs).toBe(54000);
   });
 
   it('ignores untimed lines without emitting occurrences or errors', () => {
@@ -422,6 +437,31 @@ describe('normalizeLyrics', () => {
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0].severity).toBe('error');
     expect(result.diagnostics[0].code).toBe('LRC_NEGATIVE_TIME');
+  });
+
+  it('does not falsely report increasing negative timestamps as non-monotonic', () => {
+    // Effective starts: line 1 = -1000ms, line 2 = -500ms (increasing, not decreasing)
+    const document: LrcDocument = {
+      metadata: { offset: '-2000' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Negative 1',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 1500, location: { line: 2, column: 1 } }],
+          text: 'Negative 2',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 2000 });
+    // Should have 2 LRC_NEGATIVE_TIME warnings, and 0 LRC_NON_MONOTONIC_TIMESTAMP warnings
+    expect(result.diagnostics.every((d) => d.code === 'LRC_NEGATIVE_TIME')).toBe(true);
+    expect(result.diagnostics.some((d) => d.code === 'LRC_NON_MONOTONIC_TIMESTAMP')).toBe(false);
   });
 
   it('handles overlap policy: truncate and preserve', () => {
@@ -573,6 +613,44 @@ describe('normalizeLyrics', () => {
     expect(res.normalized.occurrences[0].segments).toEqual([
       { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
       { text: 'world', timeMs: 300, location: { line: 1, column: 10 } },
+    ]);
+  });
+
+  it('adjusts enhanced segment relative offsets when decreasing line start is clamped in tolerant mode', () => {
+    // Line 1 is at 1000ms.
+    // Line 2 is at 500ms (decreasing), so in tolerant mode it is clamped to 1000ms (shift of +500ms).
+    // Enhanced segments on Line 2: word 1 at 0ms (absolute 500ms), word 2 at 800ms (absolute 1300ms).
+    // After clamping Line 2 start to 1000ms:
+    // Word 1 relative offset becomes 0ms.
+    // Word 2 relative offset becomes 800 - 500 = 300ms (absolute time remains 1000 + 300 = 1300ms).
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'First line',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 500, location: { line: 2, column: 1 } }],
+          text: 'Second line with enhanced words',
+          enhancedSegments: [
+            { text: 'Second ', timeMs: 0, location: { line: 2, column: 1 } },
+            { text: 'line', timeMs: 800, location: { line: 2, column: 10 } },
+          ],
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const res = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 2000 });
+    expect(res.diagnostics.some((d) => d.code === 'LRC_NON_MONOTONIC_TIMESTAMP')).toBe(true);
+    expect(res.normalized.occurrences).toHaveLength(2);
+    expect(res.normalized.occurrences[1].startMs).toBe(1000);
+    expect(res.normalized.occurrences[1].segments).toEqual([
+      { text: 'Second ', timeMs: 0, location: { line: 2, column: 1 } },
+      { text: 'line', timeMs: 300, location: { line: 2, column: 10 } },
     ]);
   });
 
