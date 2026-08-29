@@ -54,8 +54,12 @@ function parseOffsetMetadata(value: string | undefined): number {
   if (!value) {
     return 0;
   }
-  const parsed = Number.parseInt(value.trim(), 10);
-  return Number.isNaN(parsed) ? 0 : parsed;
+  const trimmed = value.trim();
+  if (!/^[-+]?\d+$/.test(trimmed)) {
+    return 0;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(parsed) ? parsed : 0;
 }
 
 /**
@@ -72,6 +76,56 @@ export function normalizeLyrics(
   const totalOffsetMs = metadataOffsetMs + callerOffsetMs;
 
   const diagnostics: Diagnostic[] = [];
+
+  // Validate public duration options
+  let defaultTrailingDurationMs = DEFAULT_TRAILING_DURATION_MS;
+  if (options.defaultTrailingDurationMs !== undefined) {
+    if (!Number.isSafeInteger(options.defaultTrailingDurationMs) || options.defaultTrailingDurationMs < 0) {
+      if (mode === 'strict') {
+        diagnostics.push({
+          code: 'LRC_INVALID_OPTION',
+          message: `defaultTrailingDurationMs must be a non-negative safe integer, received ${options.defaultTrailingDurationMs}.`,
+          severity: 'error',
+        });
+      } else {
+        diagnostics.push({
+          code: 'LRC_INVALID_OPTION',
+          message: `defaultTrailingDurationMs must be a non-negative safe integer, received ${options.defaultTrailingDurationMs}; falling back to ${DEFAULT_TRAILING_DURATION_MS}ms.`,
+          severity: 'warning',
+        });
+      }
+    } else {
+      defaultTrailingDurationMs = options.defaultTrailingDurationMs;
+    }
+  }
+
+  let validatedTrackEndMs = options.trackEndMs;
+  if (options.trackEndMs !== undefined) {
+    if (!Number.isSafeInteger(options.trackEndMs) || options.trackEndMs < 0) {
+      if (mode === 'strict') {
+        diagnostics.push({
+          code: 'LRC_INVALID_OPTION',
+          message: `trackEndMs must be a non-negative safe integer, received ${options.trackEndMs}.`,
+          severity: 'error',
+        });
+      } else {
+        diagnostics.push({
+          code: 'LRC_INVALID_OPTION',
+          message: `trackEndMs must be a non-negative safe integer, received ${options.trackEndMs}; ignored.`,
+          severity: 'warning',
+        });
+        validatedTrackEndMs = undefined;
+      }
+    }
+  }
+
+  if (mode === 'strict' && diagnostics.some((d) => d.severity === 'error')) {
+    return {
+      normalized: { occurrences: [] },
+      diagnostics,
+    };
+  }
+
   const rawOccurrences: UnresolvedOccurrence[] = [];
 
   // Check per-line monotonicity across line-level timestamps in document order
@@ -94,17 +148,17 @@ export function normalizeLyrics(
       } else {
         diagnostics.push({
           code: 'LRC_NON_MONOTONIC_TIMESTAMP',
-          message: `Line timestamp ${firstEffectiveMs}ms is earlier than previous line timestamp ${previousLineTimeMs}ms.`,
+          message: `Line timestamp ${firstEffectiveMs}ms is earlier than previous line timestamp ${previousLineTimeMs}ms; clamped to ${previousLineTimeMs}ms.`,
           severity: 'warning',
           location: line.timestamps[0].location ?? line.location,
         });
       }
     }
-    previousLineTimeMs = firstEffectiveMs;
+    previousLineTimeMs = Math.max(previousLineTimeMs ?? 0, firstEffectiveMs);
 
     // Check intra-line multi-timestamp monotonicity
+    let prevTs = firstEffectiveMs;
     for (let t = 1; t < line.timestamps.length; t++) {
-      const prevTs = line.timestamps[t - 1].timeMs + totalOffsetMs;
       const currTs = line.timestamps[t].timeMs + totalOffsetMs;
       if (currTs < prevTs) {
         if (mode === 'strict') {
@@ -117,23 +171,45 @@ export function normalizeLyrics(
         } else {
           diagnostics.push({
             code: 'LRC_NON_MONOTONIC_TIMESTAMP',
-            message: `Timestamp ${currTs}ms is earlier than preceding timestamp ${prevTs}ms on the same line.`,
+            message: `Timestamp ${currTs}ms is earlier than preceding timestamp ${prevTs}ms on the same line; clamped to ${prevTs}ms.`,
             severity: 'warning',
             location: line.timestamps[t].location ?? line.location,
           });
         }
       }
+      prevTs = Math.max(prevTs, currTs);
     }
   }
 
   let sourceIndex = 0;
+  let runningLineTimeMs: number | undefined;
+
   for (const line of document.lines) {
     if (line.timestamps.length === 0) {
       continue;
     }
 
-    for (const ts of line.timestamps) {
-      const effectiveStartMs = ts.timeMs + totalOffsetMs;
+    let lineStartClamped: number | undefined;
+    for (let t = 0; t < line.timestamps.length; t++) {
+      const ts = line.timestamps[t];
+      let effectiveStartMs = ts.timeMs + totalOffsetMs;
+
+      if (mode === 'tolerant') {
+        if (t === 0) {
+          if (runningLineTimeMs !== undefined && effectiveStartMs < runningLineTimeMs) {
+            effectiveStartMs = runningLineTimeMs;
+          }
+          lineStartClamped = effectiveStartMs;
+          runningLineTimeMs = effectiveStartMs;
+        } else {
+          // Repeated timestamp on the same line: clamp against previous timestamp on same line
+          if (lineStartClamped !== undefined && effectiveStartMs < lineStartClamped) {
+            effectiveStartMs = lineStartClamped;
+          }
+          lineStartClamped = effectiveStartMs;
+        }
+      }
+
       rawOccurrences.push({
         startMs: effectiveStartMs,
         text: line.text,
@@ -199,7 +275,6 @@ export function normalizeLyrics(
   }
 
   const metadataLengthMs = parseLengthMetadata(document.metadata.length) ?? parseLengthMetadata(document.metadata.t_time);
-  const defaultTrailingDurationMs = options.defaultTrailingDurationMs ?? DEFAULT_TRAILING_DURATION_MS;
 
   // Infer occurrence boundaries
   const occurrences: Occurrence[] = [];
@@ -210,31 +285,35 @@ export function normalizeLyrics(
 
     const nextStartMs = nextDistinctStarts[i];
 
-    // Minimum required duration if enhanced segments are present
+    // Enhanced segment boundary calculation
     let minEnhancedEndMs: number | undefined;
+    let trailingEnhancedEndMs: number | undefined;
     if (curr.segments && curr.segments.length > 0) {
       const lastSegment = curr.segments[curr.segments.length - 1];
       minEnhancedEndMs = curr.startMs + lastSegment.timeMs;
+      trailingEnhancedEndMs = minEnhancedEndMs + defaultTrailingDurationMs;
     }
 
     if (nextStartMs !== undefined) {
       endMs = nextStartMs;
-      // Under 'preserve', if enhanced segments extend beyond nextStartMs, allow the line to extend
-      if (overlapPolicy === 'preserve' && minEnhancedEndMs !== undefined && minEnhancedEndMs > endMs) {
-        endMs = minEnhancedEndMs;
+      // Under 'preserve', if enhanced segments extend to or beyond nextStartMs, allow the line to extend with trailing duration
+      if (overlapPolicy === 'preserve' && minEnhancedEndMs !== undefined && minEnhancedEndMs >= endMs) {
+        endMs = trailingEnhancedEndMs!;
+        if (metadataLengthMs !== undefined && metadataLengthMs > minEnhancedEndMs && endMs > metadataLengthMs) {
+          endMs = metadataLengthMs;
+        } else if (validatedTrackEndMs !== undefined && validatedTrackEndMs > minEnhancedEndMs && endMs > validatedTrackEndMs) {
+          endMs = validatedTrackEndMs;
+        }
       }
-    } else if (metadataLengthMs !== undefined && metadataLengthMs > curr.startMs) {
+    } else if (metadataLengthMs !== undefined && metadataLengthMs > (minEnhancedEndMs ?? curr.startMs)) {
       endMs = metadataLengthMs;
-    } else if (options.trackEndMs !== undefined && options.trackEndMs > curr.startMs) {
-      endMs = options.trackEndMs;
+    } else if (validatedTrackEndMs !== undefined && validatedTrackEndMs > (minEnhancedEndMs ?? curr.startMs)) {
+      endMs = validatedTrackEndMs;
     } else {
-      const baseDuration = minEnhancedEndMs !== undefined
-        ? minEnhancedEndMs - curr.startMs + defaultTrailingDurationMs
-        : defaultTrailingDurationMs;
-      endMs = curr.startMs + baseDuration;
+      endMs = trailingEnhancedEndMs ?? (curr.startMs + defaultTrailingDurationMs);
     }
 
-    // Ensure endMs is never less than the last enhanced segment start
+    // Ensure endMs is never less than the last enhanced segment start (unless truncate explicitly requested)
     if (minEnhancedEndMs !== undefined && endMs < minEnhancedEndMs && overlapPolicy !== 'truncate') {
       endMs = minEnhancedEndMs;
     }
@@ -271,6 +350,12 @@ export function normalizeLyrics(
           location: rawOccurrences[i].location,
         });
       }
+    }
+    if (mode === 'strict' && diagnostics.some((d) => d.severity === 'error')) {
+      return {
+        normalized: { occurrences: [] },
+        diagnostics,
+      };
     }
   }
 

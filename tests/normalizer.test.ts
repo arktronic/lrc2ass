@@ -74,6 +74,27 @@ describe('normalizeLyrics', () => {
     expect(result.normalized.occurrences[0].endMs).toBe(1700);
   });
 
+  it('rejects malformed offset metadata and defaults to 0 offset', () => {
+    const invalidOffsets = ['500ms', '12.34', 'abc', '+', '-', '1000px', '9007199254740992'];
+    for (const offset of invalidOffsets) {
+      const document: LrcDocument = {
+        metadata: { offset },
+        lines: [
+          {
+            timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+            text: 'Hello',
+            location: { line: 1, column: 1 },
+          },
+        ],
+        unknownEntries: [],
+      };
+
+      const result = normalizeLyrics(document, { offsetMs: 0, defaultTrailingDurationMs: 1000 });
+      expect(result.normalized.occurrences[0].startMs).toBe(1000);
+      expect(result.normalized.occurrences[0].endMs).toBe(2000);
+    }
+  });
+
   it('expands repeated timestamps and preserves source order for equal start times', () => {
     const document: LrcDocument = {
       metadata: {},
@@ -486,13 +507,13 @@ describe('normalizeLyrics', () => {
     };
 
     // Under preserve: Singer 1's last word starts at 1000 + 4500 = 5500ms.
-    // Inferred end must be >= 5500ms (at least 5500ms or 5500 + trailing duration fallback).
+    // Inferred end applies trailing duration fallback after the last segment: 5500 + 2000 = 7500ms.
     const resPreserve = normalizeLyrics(document, {
       overlapPolicy: 'preserve',
       defaultTrailingDurationMs: 2000,
     });
     expect(resPreserve.normalized.occurrences[0].startMs).toBe(1000);
-    expect(resPreserve.normalized.occurrences[0].endMs).toBeGreaterThanOrEqual(5500);
+    expect(resPreserve.normalized.occurrences[0].endMs).toBe(7500);
 
     // Under truncate: if explicitly requested to truncate to next line start
     const resTruncate = normalizeLyrics(document, {
@@ -501,6 +522,28 @@ describe('normalizeLyrics', () => {
     });
     expect(resTruncate.normalized.occurrences[0].startMs).toBe(1000);
     expect(resTruncate.normalized.occurrences[0].endMs).toBe(3000);
+
+    // Under error policy in tolerant mode: emits warning diagnostic for overlap but returns occurrences
+    const resErrorTolerant = normalizeLyrics(document, {
+      overlapPolicy: 'error',
+      mode: 'tolerant',
+      defaultTrailingDurationMs: 2000,
+    });
+    expect(resErrorTolerant.diagnostics).toHaveLength(1);
+    expect(resErrorTolerant.diagnostics[0].code).toBe('LRC_OVERLAPPING_OCCURRENCE');
+    expect(resErrorTolerant.diagnostics[0].severity).toBe('warning');
+    expect(resErrorTolerant.normalized.occurrences).toHaveLength(2);
+
+    // Under error policy in strict mode: emits error diagnostic and returns empty occurrences
+    const resErrorStrict = normalizeLyrics(document, {
+      overlapPolicy: 'error',
+      mode: 'strict',
+      defaultTrailingDurationMs: 2000,
+    });
+    expect(resErrorStrict.diagnostics).toHaveLength(1);
+    expect(resErrorStrict.diagnostics[0].code).toBe('LRC_OVERLAPPING_OCCURRENCE');
+    expect(resErrorStrict.diagnostics[0].severity).toBe('error');
+    expect(resErrorStrict.normalized.occurrences).toEqual([]);
   });
 
   it('adjusts enhanced segment relative offsets when line start is clamped in tolerant mode', () => {
@@ -584,15 +627,59 @@ describe('normalizeLyrics', () => {
     expect(strictRes.diagnostics[0].code).toBe('LRC_NON_MONOTONIC_TIMESTAMP');
     expect(strictRes.normalized.occurrences).toEqual([]);
 
-    // Tolerant mode: warning diagnostic and reordered by sort
+    // Tolerant mode: warning diagnostic and clamped to previous timestamp (5000ms), preserving line order
     const tolerantRes = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 2000 });
     expect(tolerantRes.diagnostics).toHaveLength(1);
     expect(tolerantRes.diagnostics[0].severity).toBe('warning');
     expect(tolerantRes.diagnostics[0].code).toBe('LRC_NON_MONOTONIC_TIMESTAMP');
     expect(tolerantRes.normalized.occurrences).toHaveLength(2);
-    expect(tolerantRes.normalized.occurrences[0].startMs).toBe(3000);
-    expect(tolerantRes.normalized.occurrences[0].text).toBe('Line 2 at 3s (decreasing)');
+    expect(tolerantRes.normalized.occurrences[0].startMs).toBe(5000);
+    expect(tolerantRes.normalized.occurrences[0].text).toBe('Line 1 at 5s');
     expect(tolerantRes.normalized.occurrences[1].startMs).toBe(5000);
-    expect(tolerantRes.normalized.occurrences[1].text).toBe('Line 1 at 5s');
+    expect(tolerantRes.normalized.occurrences[1].text).toBe('Line 2 at 3s (decreasing)');
+  });
+
+  it('validates defaultTrailingDurationMs and trackEndMs in strict and tolerant modes', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Hello',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    // Strict mode rejects negative defaultTrailingDurationMs
+    const strictRes = normalizeLyrics(document, { mode: 'strict', defaultTrailingDurationMs: -500 });
+    expect(strictRes.diagnostics).toHaveLength(1);
+    expect(strictRes.diagnostics[0].severity).toBe('error');
+    expect(strictRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
+    expect(strictRes.normalized.occurrences).toEqual([]);
+
+    // Strict mode rejects negative trackEndMs
+    const strictTrackRes = normalizeLyrics(document, { mode: 'strict', trackEndMs: -100 });
+    expect(strictTrackRes.diagnostics).toHaveLength(1);
+    expect(strictTrackRes.diagnostics[0].severity).toBe('error');
+    expect(strictTrackRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
+    expect(strictTrackRes.normalized.occurrences).toEqual([]);
+
+    // Tolerant mode warns and falls back to default 5000ms
+    const tolerantRes = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: -500 });
+    expect(tolerantRes.diagnostics).toHaveLength(1);
+    expect(tolerantRes.diagnostics[0].severity).toBe('warning');
+    expect(tolerantRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
+    expect(tolerantRes.normalized.occurrences[0].startMs).toBe(1000);
+    expect(tolerantRes.normalized.occurrences[0].endMs).toBe(6000);
+
+    // Tolerant mode warns and ignores negative trackEndMs, falling back to defaultTrailingDurationMs
+    const tolerantTrackRes = normalizeLyrics(document, { mode: 'tolerant', trackEndMs: -100, defaultTrailingDurationMs: 2000 });
+    expect(tolerantTrackRes.diagnostics).toHaveLength(1);
+    expect(tolerantTrackRes.diagnostics[0].severity).toBe('warning');
+    expect(tolerantTrackRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
+    expect(tolerantTrackRes.normalized.occurrences[0].startMs).toBe(1000);
+    expect(tolerantTrackRes.normalized.occurrences[0].endMs).toBe(3000);
   });
 });
