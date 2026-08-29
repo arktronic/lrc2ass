@@ -4,7 +4,7 @@
 
 ## Scope
 
-- Parse simple LRC, enhanced word-timed LRC, multiple timestamps per line, metadata, and explicitly supported common variants.
+- Parse simple LRC, enhanced word-timed LRC, multiple timestamps per line, metadata, and explicitly supported common variants. Sanity check against other libraries, such as https://github.com/jacquesh/foo_openlyrics.
 - Generate line-timed and word-highlighted ASS.
 - Support configurable timing, styles, layout, gaps/interludes, and a multi-line preset.
 - Expose editable LRC and ASS models, staged APIs, and a one-step conversion API.
