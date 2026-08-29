@@ -3,8 +3,527 @@ import { normalizeLyrics } from '../src/index.js';
 import type { LrcDocument } from '../src/index.js';
 
 describe('normalizeLyrics', () => {
-  it('is not yet implemented', () => {
-    const document: LrcDocument = { metadata: {}, lines: [], unknownEntries: [] };
-    expect(() => normalizeLyrics(document, {})).toThrow(/not implemented/);
+  it('normalizes simple timed lines and infers end times from next line', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'First line',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 4000, location: { line: 2, column: 1 } }],
+          text: 'Second line',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { defaultTrailingDurationMs: 2500 });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.normalized.occurrences).toEqual([
+      {
+        startMs: 1000,
+        endMs: 4000,
+        text: 'First line',
+      },
+      {
+        startMs: 4000,
+        endMs: 6500,
+        text: 'Second line',
+      },
+    ]);
+  });
+
+  it('applies metadata offset and caller offset', () => {
+    const document: LrcDocument = {
+      metadata: { offset: '500' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Hello',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    // metadata offset 500 + caller offset 200 = 700ms added
+    const result = normalizeLyrics(document, { offsetMs: 200, defaultTrailingDurationMs: 2000 });
+    expect(result.normalized.occurrences[0].startMs).toBe(1700);
+    expect(result.normalized.occurrences[0].endMs).toBe(3700);
+  });
+
+  it('handles negative metadata offset and negative caller offset', () => {
+    const document: LrcDocument = {
+      metadata: { offset: '-200' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Hello',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { offsetMs: -100, defaultTrailingDurationMs: 1000 });
+    expect(result.normalized.occurrences[0].startMs).toBe(700);
+    expect(result.normalized.occurrences[0].endMs).toBe(1700);
+  });
+
+  it('expands repeated timestamps and preserves source order for equal start times', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [
+            { timeMs: 1000, location: { line: 1, column: 1 } },
+            { timeMs: 5000, location: { line: 1, column: 10 } },
+          ],
+          text: 'Chorus line',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 3000, location: { line: 2, column: 1 } }],
+          text: 'Verse line',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { defaultTrailingDurationMs: 2000 });
+    expect(result.normalized.occurrences).toEqual([
+      {
+        startMs: 1000,
+        endMs: 3000,
+        text: 'Chorus line',
+      },
+      {
+        startMs: 3000,
+        endMs: 5000,
+        text: 'Verse line',
+      },
+      {
+        startMs: 5000,
+        endMs: 7000,
+        text: 'Chorus line',
+      },
+    ]);
+  });
+
+  it('preserves source order when multiple lines have identical start times', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Line 1',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 2, column: 1 } }],
+          text: 'Line 2',
+          location: { line: 2, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 3000, location: { line: 3, column: 1 } }],
+          text: 'Line 3',
+          location: { line: 3, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { defaultTrailingDurationMs: 2000 });
+    expect(result.normalized.occurrences[0].text).toBe('Line 1');
+    expect(result.normalized.occurrences[0].startMs).toBe(1000);
+    expect(result.normalized.occurrences[0].endMs).toBe(3000);
+
+    expect(result.normalized.occurrences[1].text).toBe('Line 2');
+    expect(result.normalized.occurrences[1].startMs).toBe(1000);
+    expect(result.normalized.occurrences[1].endMs).toBe(3000);
+
+    expect(result.normalized.occurrences[2].text).toBe('Line 3');
+    expect(result.normalized.occurrences[2].startMs).toBe(3000);
+    expect(result.normalized.occurrences[2].endMs).toBe(5000);
+  });
+
+  it('handles enhanced segments on simple and repeated lines', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [
+            { timeMs: 1000, location: { line: 1, column: 1 } },
+            { timeMs: 6000, location: { line: 1, column: 10 } },
+          ],
+          text: 'Hello world',
+          enhancedSegments: [
+            { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'world', timeMs: 1500, location: { line: 1, column: 10 } },
+          ],
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 4000, location: { line: 2, column: 1 } }],
+          text: 'Interlude',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { defaultTrailingDurationMs: 2000 });
+    expect(result.normalized.occurrences).toEqual([
+      {
+        startMs: 1000,
+        endMs: 4000,
+        text: 'Hello world',
+        segments: [
+          { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
+          { text: 'world', timeMs: 1500, location: { line: 1, column: 10 } },
+        ],
+      },
+      {
+        startMs: 4000,
+        endMs: 6000,
+        text: 'Interlude',
+      },
+      {
+        startMs: 6000,
+        endMs: 9500,
+        text: 'Hello world',
+        segments: [
+          { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
+          { text: 'world', timeMs: 1500, location: { line: 1, column: 10 } },
+        ],
+      },
+    ]);
+  });
+
+  it('infers final line end from length metadata first, then trackEndMs, then defaultTrailingDurationMs', () => {
+    const docWithLength: LrcDocument = {
+      metadata: { length: '03:30' }, // 210,000 ms
+      lines: [
+        {
+          timestamps: [{ timeMs: 200000, location: { line: 1, column: 1 } }],
+          text: 'Ending',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    // 1. Length metadata wins over trackEndMs and defaultTrailingDurationMs
+    const res1 = normalizeLyrics(docWithLength, { trackEndMs: 220000, defaultTrailingDurationMs: 5000 });
+    expect(res1.normalized.occurrences[0].endMs).toBe(210000);
+
+    // 2. trackEndMs wins over defaultTrailingDurationMs when length metadata is absent
+    const docNoLength: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 10000, location: { line: 1, column: 1 } }],
+          text: 'Ending',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res2 = normalizeLyrics(docNoLength, { trackEndMs: 15000, defaultTrailingDurationMs: 2000 });
+    expect(res2.normalized.occurrences[0].endMs).toBe(15000);
+
+    // 3. defaultTrailingDurationMs fallback
+    const res3 = normalizeLyrics(docNoLength, { defaultTrailingDurationMs: 3000 });
+    expect(res3.normalized.occurrences[0].endMs).toBe(13000);
+  });
+
+  it('parses mm:ss.xx format length metadata', () => {
+    const doc: LrcDocument = {
+      metadata: { length: '01:15.50' }, // 75,500 ms
+      lines: [
+        {
+          timestamps: [{ timeMs: 70000, location: { line: 1, column: 1 } }],
+          text: 'Ending',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res = normalizeLyrics(doc, {});
+    expect(res.normalized.occurrences[0].endMs).toBe(75500);
+  });
+
+  it('supports t_time tag (with and without parentheses) as a length fallback', () => {
+    const docWithParens: LrcDocument = {
+      metadata: { t_time: '(03:45)' }, // 225,000 ms
+      lines: [
+        {
+          timestamps: [{ timeMs: 200000, location: { line: 1, column: 1 } }],
+          text: 'Ending with parens',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res1 = normalizeLyrics(docWithParens, {});
+    expect(res1.normalized.occurrences[0].endMs).toBe(225000);
+
+    const docWithoutParens: LrcDocument = {
+      metadata: { t_time: '02:30.50' }, // 150,500 ms
+      lines: [
+        {
+          timestamps: [{ timeMs: 140000, location: { line: 1, column: 1 } }],
+          text: 'Ending without parens',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res2 = normalizeLyrics(docWithoutParens, {});
+    expect(res2.normalized.occurrences[0].endMs).toBe(150500);
+
+    // length tag takes precedence over t_time
+    const docWithBoth: LrcDocument = {
+      metadata: { length: '04:00', t_time: '(03:00)' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 100000, location: { line: 1, column: 1 } }],
+          text: 'Ending',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res3 = normalizeLyrics(docWithBoth, {});
+    expect(res3.normalized.occurrences[0].endMs).toBe(240000);
+  });
+
+  it('ignores untimed lines without emitting occurrences or errors', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [],
+          text: 'Untimed line',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 2, column: 1 } }],
+          text: 'Timed line',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { defaultTrailingDurationMs: 2000 });
+    expect(result.normalized.occurrences).toHaveLength(1);
+    expect(result.normalized.occurrences[0].text).toBe('Timed line');
+  });
+
+  it('handles negative effective time in tolerant mode (clamps to 0 and emits warning)', () => {
+    const document: LrcDocument = {
+      metadata: { offset: '-2000' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Too early',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 4000, location: { line: 2, column: 1 } }],
+          text: 'Normal',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 2000 });
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].severity).toBe('warning');
+    expect(result.diagnostics[0].code).toBe('LRC_NEGATIVE_TIME');
+    expect(result.normalized.occurrences[0].startMs).toBe(0);
+    expect(result.normalized.occurrences[0].endMs).toBe(2000);
+  });
+
+  it('handles negative effective time in strict mode (emits error diagnostic)', () => {
+    const document: LrcDocument = {
+      metadata: { offset: '-2000' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Too early',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { mode: 'strict' });
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].severity).toBe('error');
+    expect(result.diagnostics[0].code).toBe('LRC_NEGATIVE_TIME');
+  });
+
+  it('handles overlap policy: truncate and preserve', () => {
+    const document: LrcDocument = {
+      metadata: { length: '00:10' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Line 1',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 3000, location: { line: 2, column: 1 } }],
+          text: 'Line 2',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const resTruncate = normalizeLyrics(document, { overlapPolicy: 'truncate' });
+    expect(resTruncate.normalized.occurrences[0].startMs).toBe(1000);
+    expect(resTruncate.normalized.occurrences[0].endMs).toBe(3000);
+  });
+
+  it('handles simultaneous start times (duets) without squashing under truncate or flagging under error', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Singer 1: Harmony part A',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 2, column: 1 } }],
+          text: 'Singer 2: Harmony part B',
+          location: { line: 2, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 5000, location: { line: 3, column: 1 } }],
+          text: 'Both: Next line',
+          location: { line: 3, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    // Under truncate: simultaneous lines at 1000ms should both end at 5000ms (not truncated against each other to 1000ms)
+    const resTruncate = normalizeLyrics(document, { overlapPolicy: 'truncate', defaultTrailingDurationMs: 2000 });
+    expect(resTruncate.normalized.occurrences[0].startMs).toBe(1000);
+    expect(resTruncate.normalized.occurrences[0].endMs).toBe(5000);
+    expect(resTruncate.normalized.occurrences[1].startMs).toBe(1000);
+    expect(resTruncate.normalized.occurrences[1].endMs).toBe(5000);
+
+    // Under error & strict mode: simultaneous starts are valid multi-voice lines and should not trigger LRC_OVERLAPPING_OCCURRENCE
+    const resError = normalizeLyrics(document, { overlapPolicy: 'error', mode: 'strict', defaultTrailingDurationMs: 2000 });
+    expect(resError.diagnostics).toEqual([]);
+    expect(resError.normalized.occurrences).toHaveLength(3);
+  });
+
+  it('ensures occurrence endMs accommodates all enhanced segment timestamps under preserve', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Singer 1 singing a very long held note',
+          enhancedSegments: [
+            { text: 'Singer 1 ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'singing ', timeMs: 1000, location: { line: 1, column: 10 } },
+            { text: 'held note', timeMs: 4500, location: { line: 1, column: 20 } },
+          ],
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 3000, location: { line: 2, column: 1 } }],
+          text: 'Singer 2 entering while Singer 1 is holding note',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    // Under preserve: Singer 1's last word starts at 1000 + 4500 = 5500ms.
+    // Inferred end must be >= 5500ms (at least 5500ms or 5500 + trailing duration fallback).
+    const resPreserve = normalizeLyrics(document, {
+      overlapPolicy: 'preserve',
+      defaultTrailingDurationMs: 2000,
+    });
+    expect(resPreserve.normalized.occurrences[0].startMs).toBe(1000);
+    expect(resPreserve.normalized.occurrences[0].endMs).toBeGreaterThanOrEqual(5500);
+
+    // Under truncate: if explicitly requested to truncate to next line start
+    const resTruncate = normalizeLyrics(document, {
+      overlapPolicy: 'truncate',
+      defaultTrailingDurationMs: 2000,
+    });
+    expect(resTruncate.normalized.occurrences[0].startMs).toBe(1000);
+    expect(resTruncate.normalized.occurrences[0].endMs).toBe(3000);
+  });
+
+  it('adjusts enhanced segment relative offsets when line start is clamped in tolerant mode', () => {
+    // Line starts at 500ms, offset is -1000ms -> unclamped effective start is -500ms
+    // Enhanced segments: word 1 at offset 0 (i.e. -500ms), word 2 at offset 800ms (i.e. +300ms)
+    // Clamping start to 0ms shifts the line by +500ms.
+    // Word 1 was at -500ms -> clamped to offset 0 (0ms).
+    // Word 2 was at +300ms -> relative offset to new start 0ms is 300ms (not 800ms).
+    const document: LrcDocument = {
+      metadata: { offset: '-1000' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 500, location: { line: 1, column: 1 } }],
+          text: 'Hello world',
+          enhancedSegments: [
+            { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'world', timeMs: 800, location: { line: 1, column: 10 } },
+          ],
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const res = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 2000 });
+    expect(res.normalized.occurrences[0].startMs).toBe(0);
+    expect(res.normalized.occurrences[0].segments).toEqual([
+      { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
+      { text: 'world', timeMs: 300, location: { line: 1, column: 10 } },
+    ]);
+  });
+
+  it('provides trailing duration for final enhanced segment when inferring line end', () => {
+    // A single isolated enhanced line with words starting at 0ms and 1500ms.
+    // The final word should not have 0ms duration; the occurrence endMs should provide trailing time for the last word.
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Hello world',
+          enhancedSegments: [
+            { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'world', timeMs: 1500, location: { line: 1, column: 10 } },
+          ],
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const res = normalizeLyrics(document, { defaultTrailingDurationMs: 2000 });
+    // Line starts at 1000, last word starts at 1000 + 1500 = 2500ms.
+    // With defaultTrailingDurationMs = 2000, endMs is 1000 + 1500 + 2000 = 4500ms (or 1000 + 2000 if 2000 >= 1500 + min, but specifically > last segment start).
+    expect(res.normalized.occurrences[0].startMs).toBe(1000);
+    expect(res.normalized.occurrences[0].endMs).toBe(4500);
   });
 });
