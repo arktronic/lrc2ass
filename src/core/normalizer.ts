@@ -71,10 +71,35 @@ export function normalizeLyrics(
   const mode = options.mode ?? 'tolerant';
   const overlapPolicy = options.overlapPolicy ?? 'preserve';
   const metadataOffsetMs = parseOffsetMetadata(document.metadata.offset);
-  const callerOffsetMs = options.offsetMs ?? 0;
-  const totalOffsetMs = metadataOffsetMs + callerOffsetMs;
 
   const diagnostics: Diagnostic[] = [];
+
+  // Validate caller offsetMs
+  let callerOffsetMs = 0;
+  if (options.offsetMs !== undefined) {
+    if (!Number.isSafeInteger(options.offsetMs)) {
+      diagnostics.push({
+        code: 'LRC_INVALID_OPTION',
+        message: `offsetMs must be a safe integer, received ${options.offsetMs}${mode === 'tolerant' ? '; ignored.' : '.'}`,
+        severity: mode === 'strict' ? 'error' : 'warning',
+      });
+    } else {
+      callerOffsetMs = options.offsetMs;
+    }
+  }
+
+  // Validate combined total offset
+  let totalOffsetMs = metadataOffsetMs + callerOffsetMs;
+  if (!Number.isSafeInteger(totalOffsetMs)) {
+    diagnostics.push({
+      code: 'LRC_INVALID_OPTION',
+      message: `Combined offset (${totalOffsetMs}) exceeds safe integer range${mode === 'tolerant' ? '; falling back to metadata offset.' : '.'}`,
+      severity: mode === 'strict' ? 'error' : 'warning',
+    });
+    if (mode === 'tolerant') {
+      totalOffsetMs = metadataOffsetMs;
+    }
+  }
 
   // Validate public duration options
   let defaultTrailingDurationMs = DEFAULT_TRAILING_DURATION_MS;

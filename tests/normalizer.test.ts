@@ -760,4 +760,38 @@ describe('normalizeLyrics', () => {
     expect(tolerantTrackRes.normalized.occurrences[0].startMs).toBe(1000);
     expect(tolerantTrackRes.normalized.occurrences[0].endMs).toBe(3000);
   });
+
+  it('validates offsetMs in strict and tolerant modes', () => {
+    const document: LrcDocument = {
+      metadata: { offset: '500' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Hello',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    // Strict mode rejects NaN, fractions, and unsafe integers
+    const invalidOffsets = [Number.NaN, 12.34, Number.POSITIVE_INFINITY, 9007199254740992];
+    for (const invalidOffset of invalidOffsets) {
+      const strictRes = normalizeLyrics(document, { mode: 'strict', offsetMs: invalidOffset });
+      expect(strictRes.diagnostics).toHaveLength(1);
+      expect(strictRes.diagnostics[0].severity).toBe('error');
+      expect(strictRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
+      expect(strictRes.normalized.occurrences).toEqual([]);
+    }
+
+    // Tolerant mode warns and ignores invalid offsetMs, using metadata offset (500ms)
+    for (const invalidOffset of invalidOffsets) {
+      const tolerantRes = normalizeLyrics(document, { mode: 'tolerant', offsetMs: invalidOffset, defaultTrailingDurationMs: 1000 });
+      expect(tolerantRes.diagnostics).toHaveLength(1);
+      expect(tolerantRes.diagnostics[0].severity).toBe('warning');
+      expect(tolerantRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
+      expect(tolerantRes.normalized.occurrences[0].startMs).toBe(1500); // 1000 + metadata 500
+      expect(tolerantRes.normalized.occurrences[0].endMs).toBe(2500);
+    }
+  });
 });
