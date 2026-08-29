@@ -303,6 +303,38 @@ describe('normalizeLyrics', () => {
     expect(res3.normalized.occurrences[0].endMs).toBe(240000);
   });
 
+  it('rejects out-of-range seconds or minutes in length/t_time metadata and falls through', () => {
+    // 03:60 has invalid seconds (> 59); should fall through to t_time or default
+    const docInvalidSeconds: LrcDocument = {
+      metadata: { length: '03:60', t_time: '02:00' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 50000, location: { line: 1, column: 1 } }],
+          text: 'Ending',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res1 = normalizeLyrics(docInvalidSeconds, {});
+    expect(res1.normalized.occurrences[0].endMs).toBe(120000);
+
+    // 1:75:00 has invalid minutes with hours (> 59); should fall through to defaultTrailingDurationMs
+    const docInvalidMinutes: LrcDocument = {
+      metadata: { length: '1:75:00' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 50000, location: { line: 1, column: 1 } }],
+          text: 'Ending',
+          location: { line: 1, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+    const res2 = normalizeLyrics(docInvalidMinutes, { defaultTrailingDurationMs: 4000 });
+    expect(res2.normalized.occurrences[0].endMs).toBe(54000);
+  });
+
   it('ignores untimed lines without emitting occurrences or errors', () => {
     const document: LrcDocument = {
       metadata: {},
@@ -525,5 +557,42 @@ describe('normalizeLyrics', () => {
     // With defaultTrailingDurationMs = 2000, endMs is 1000 + 1500 + 2000 = 4500ms (or 1000 + 2000 if 2000 >= 1500 + min, but specifically > last segment start).
     expect(res.normalized.occurrences[0].startMs).toBe(1000);
     expect(res.normalized.occurrences[0].endMs).toBe(4500);
+  });
+
+  it('handles decreasing timestamps: fails in strict mode and warns/clamps in tolerant mode', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [
+        {
+          timestamps: [{ timeMs: 5000, location: { line: 1, column: 1 } }],
+          text: 'Line 1 at 5s',
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 3000, location: { line: 2, column: 1 } }],
+          text: 'Line 2 at 3s (decreasing)',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    // Strict mode: error diagnostic and empty occurrences
+    const strictRes = normalizeLyrics(document, { mode: 'strict' });
+    expect(strictRes.diagnostics).toHaveLength(1);
+    expect(strictRes.diagnostics[0].severity).toBe('error');
+    expect(strictRes.diagnostics[0].code).toBe('LRC_NON_MONOTONIC_TIMESTAMP');
+    expect(strictRes.normalized.occurrences).toEqual([]);
+
+    // Tolerant mode: warning diagnostic and reordered by sort
+    const tolerantRes = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 2000 });
+    expect(tolerantRes.diagnostics).toHaveLength(1);
+    expect(tolerantRes.diagnostics[0].severity).toBe('warning');
+    expect(tolerantRes.diagnostics[0].code).toBe('LRC_NON_MONOTONIC_TIMESTAMP');
+    expect(tolerantRes.normalized.occurrences).toHaveLength(2);
+    expect(tolerantRes.normalized.occurrences[0].startMs).toBe(3000);
+    expect(tolerantRes.normalized.occurrences[0].text).toBe('Line 2 at 3s (decreasing)');
+    expect(tolerantRes.normalized.occurrences[1].startMs).toBe(5000);
+    expect(tolerantRes.normalized.occurrences[1].text).toBe('Line 1 at 5s');
   });
 });

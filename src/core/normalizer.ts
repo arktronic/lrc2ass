@@ -28,6 +28,12 @@ function parseLengthMetadata(value: string | undefined): number | undefined {
     const hours = dotMatch[1] === undefined ? 0 : Number.parseInt(dotMatch[1], 10);
     const minutes = Number.parseInt(dotMatch[2], 10);
     const seconds = Number.parseInt(dotMatch[3], 10);
+    if (seconds > 59) {
+      return undefined;
+    }
+    if (dotMatch[1] !== undefined && minutes > 59) {
+      return undefined;
+    }
     const fraction = dotMatch[4];
     let fractionMs = 0;
     if (fraction) {
@@ -67,6 +73,58 @@ export function normalizeLyrics(
 
   const diagnostics: Diagnostic[] = [];
   const rawOccurrences: UnresolvedOccurrence[] = [];
+
+  // Check per-line monotonicity across line-level timestamps in document order
+  let previousLineTimeMs: number | undefined;
+  for (const line of document.lines) {
+    if (line.timestamps.length === 0) {
+      continue;
+    }
+
+    // Check line-to-line ordering
+    const firstEffectiveMs = line.timestamps[0].timeMs + totalOffsetMs;
+    if (previousLineTimeMs !== undefined && firstEffectiveMs < previousLineTimeMs) {
+      if (mode === 'strict') {
+        diagnostics.push({
+          code: 'LRC_NON_MONOTONIC_TIMESTAMP',
+          message: `Line timestamp ${firstEffectiveMs}ms is earlier than previous line timestamp ${previousLineTimeMs}ms.`,
+          severity: 'error',
+          location: line.timestamps[0].location ?? line.location,
+        });
+      } else {
+        diagnostics.push({
+          code: 'LRC_NON_MONOTONIC_TIMESTAMP',
+          message: `Line timestamp ${firstEffectiveMs}ms is earlier than previous line timestamp ${previousLineTimeMs}ms.`,
+          severity: 'warning',
+          location: line.timestamps[0].location ?? line.location,
+        });
+      }
+    }
+    previousLineTimeMs = firstEffectiveMs;
+
+    // Check intra-line multi-timestamp monotonicity
+    for (let t = 1; t < line.timestamps.length; t++) {
+      const prevTs = line.timestamps[t - 1].timeMs + totalOffsetMs;
+      const currTs = line.timestamps[t].timeMs + totalOffsetMs;
+      if (currTs < prevTs) {
+        if (mode === 'strict') {
+          diagnostics.push({
+            code: 'LRC_NON_MONOTONIC_TIMESTAMP',
+            message: `Timestamp ${currTs}ms is earlier than preceding timestamp ${prevTs}ms on the same line.`,
+            severity: 'error',
+            location: line.timestamps[t].location ?? line.location,
+          });
+        } else {
+          diagnostics.push({
+            code: 'LRC_NON_MONOTONIC_TIMESTAMP',
+            message: `Timestamp ${currTs}ms is earlier than preceding timestamp ${prevTs}ms on the same line.`,
+            severity: 'warning',
+            location: line.timestamps[t].location ?? line.location,
+          });
+        }
+      }
+    }
+  }
 
   let sourceIndex = 0;
   for (const line of document.lines) {
@@ -130,6 +188,16 @@ export function normalizeLyrics(
     return a.sourceIndex - b.sourceIndex;
   });
 
+  // Precompute next distinct start times in O(N) backward pass
+  const nextDistinctStarts: (number | undefined)[] = new Array(rawOccurrences.length);
+  let nextDistinct: number | undefined;
+  for (let i = rawOccurrences.length - 1; i >= 0; i--) {
+    if (i < rawOccurrences.length - 1 && rawOccurrences[i + 1].startMs > rawOccurrences[i].startMs) {
+      nextDistinct = rawOccurrences[i + 1].startMs;
+    }
+    nextDistinctStarts[i] = nextDistinct;
+  }
+
   const metadataLengthMs = parseLengthMetadata(document.metadata.length) ?? parseLengthMetadata(document.metadata.t_time);
   const defaultTrailingDurationMs = options.defaultTrailingDurationMs ?? DEFAULT_TRAILING_DURATION_MS;
 
@@ -140,14 +208,7 @@ export function normalizeLyrics(
     const curr = rawOccurrences[i];
     let endMs: number;
 
-    // Look for next strictly later occurrence start time
-    let nextStartMs: number | undefined;
-    for (let j = i + 1; j < rawOccurrences.length; j++) {
-      if (rawOccurrences[j].startMs > curr.startMs) {
-        nextStartMs = rawOccurrences[j].startMs;
-        break;
-      }
-    }
+    const nextStartMs = nextDistinctStarts[i];
 
     // Minimum required duration if enhanced segments are present
     let minEnhancedEndMs: number | undefined;
@@ -194,34 +255,21 @@ export function normalizeLyrics(
   // Overlap handling
   if (overlapPolicy === 'truncate') {
     for (let i = 0; i < occurrences.length - 1; i++) {
-      // Look for the next occurrence with a strictly later startMs
-      let nextStrictlyLaterStart: number | undefined;
-      for (let j = i + 1; j < occurrences.length; j++) {
-        if (occurrences[j].startMs > occurrences[i].startMs) {
-          nextStrictlyLaterStart = occurrences[j].startMs;
-          break;
-        }
-      }
-
+      const nextStrictlyLaterStart = nextDistinctStarts[i];
       if (nextStrictlyLaterStart !== undefined && occurrences[i].endMs > nextStrictlyLaterStart) {
         occurrences[i].endMs = nextStrictlyLaterStart;
       }
     }
   } else if (overlapPolicy === 'error') {
     for (let i = 0; i < occurrences.length - 1; i++) {
-      // Only report overlap against subsequent occurrences that start strictly after occurrences[i].startMs
-      // (simultaneous starts with identical startMs are concurrent lines, not out-of-order overlap errors)
-      for (let j = i + 1; j < occurrences.length; j++) {
-        const other = occurrences[j];
-        if (other.startMs > occurrences[i].startMs && occurrences[i].endMs > other.startMs) {
-          diagnostics.push({
-            code: 'LRC_OVERLAPPING_OCCURRENCE',
-            message: `Occurrence starting at ${occurrences[i].startMs}ms overlaps with next occurrence starting at ${other.startMs}ms.`,
-            severity: mode === 'strict' ? 'error' : 'warning',
-            location: rawOccurrences[i].location,
-          });
-          break;
-        }
+      const nextStrictlyLaterStart = nextDistinctStarts[i];
+      if (nextStrictlyLaterStart !== undefined && occurrences[i].endMs > nextStrictlyLaterStart) {
+        diagnostics.push({
+          code: 'LRC_OVERLAPPING_OCCURRENCE',
+          message: `Occurrence starting at ${occurrences[i].startMs}ms overlaps with next occurrence starting at ${nextStrictlyLaterStart}ms.`,
+          severity: mode === 'strict' ? 'error' : 'warning',
+          location: rawOccurrences[i].location,
+        });
       }
     }
   }
