@@ -21,6 +21,22 @@ describe('parseLrc', () => {
     expect(result.document.lines[0].timestamps.map((timestamp) => timestamp.timeMs)).toEqual([1000, 2345]);
   });
 
+  it('keeps bracketed lyric text after a timestamp', () => {
+    const result = parseLrc('[00:01.00][Chorus] Hello', { mode: 'tolerant' });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document.lines).toHaveLength(1);
+    expect(result.document.lines[0].text).toBe('[Chorus] Hello');
+  });
+
+  it('reports malformed timestamp-like tokens after a timestamp', () => {
+    const result = parseLrc('[00:01.00][00:01.2] Hello', { mode: 'tolerant' });
+
+    expect(result.document.lines).toEqual([]);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].code).toBe('LRC_TIMESTAMP_INVALID');
+  });
+
   it('parses enhanced inline segments as offsets from line start', () => {
     const result = parseLrc('[00:10.000]He<00:10.500>llo<00:11.000>!', { mode: 'tolerant' });
 

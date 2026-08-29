@@ -9,8 +9,9 @@ import type {
 } from '../types/index.js';
 
 type ParsedTimestamp =
-  | { ok: true; timeMs: number }
-  | { ok: false; code: string; message: string; timestampLike: boolean };
+  | { kind: 'timestamp'; timeMs: number }
+  | { kind: 'malformed'; code: string; message: string }
+  | { kind: 'lyric-text'; code: string; message: string };
 
 type ParsedEnhanced =
   | { ok: true; text: string; segments: EnhancedSegment[] }
@@ -98,26 +99,24 @@ function parseTimestampToken(token: string): ParsedTimestamp {
     const seconds = Number.parseInt(dotMatch[3], 10);
     if (seconds > 59) {
       return {
-        ok: false,
+        kind: 'malformed',
         code: 'LRC_TIMESTAMP_SECONDS_RANGE',
         message: `Invalid timestamp seconds in "${token}". Seconds must be 00-59.`,
-        timestampLike: true,
       };
     }
 
     if (dotMatch[1] !== undefined && minutes > 59) {
       return {
-        ok: false,
+        kind: 'malformed',
         code: 'LRC_TIMESTAMP_MINUTES_RANGE',
         message: `Invalid timestamp minutes in "${token}". Minutes must be 00-59 when hours are present.`,
-        timestampLike: true,
       };
     }
 
     const fraction = dotMatch[4];
     const fractionMs = fraction.length === 2 ? Number.parseInt(fraction, 10) * 10 : Number.parseInt(fraction, 10);
     return {
-      ok: true,
+      kind: 'timestamp',
       timeMs: hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + fractionMs,
     };
   }
@@ -127,26 +126,24 @@ function parseTimestampToken(token: string): ParsedTimestamp {
     const seconds = Number.parseInt(noDotMatch[2], 10);
     if (seconds > 59) {
       return {
-        ok: false,
+        kind: 'malformed',
         code: 'LRC_TIMESTAMP_SECONDS_RANGE',
         message: `Invalid timestamp seconds in "${token}". Seconds must be 00-59.`,
-        timestampLike: true,
       };
     }
 
     const fraction = noDotMatch[3];
     const fractionMs = fraction === undefined ? 0 : Number.parseInt(fraction, 10) * 10;
     return {
-      ok: true,
+      kind: 'timestamp',
       timeMs: minutes * 60_000 + seconds * 1_000 + fractionMs,
     };
   }
 
   return {
-    ok: false,
+    kind: /^\d+:/.test(token) ? 'malformed' : 'lyric-text',
     code: 'LRC_TIMESTAMP_INVALID',
     message: `Invalid timestamp format: "${token}". Expected mm:ss, mm:ss.xx, mm:ss.xxx, hh:mm:ss.xx, or mm:ss:cc.`,
-    timestampLike: /^\d+:/.test(token),
   };
 }
 
@@ -167,11 +164,11 @@ function parseLeadingTimestamps(lineText: string, lineNumber: number, baseColumn
 
     const token = lineText.slice(index + 1, closeIndex);
     const parsed = parseTimestampToken(token);
-    if (!parsed.ok) {
-      if (timestamps.length === 0 && !parsed.timestampLike) {
-        return { timestamps: [], textStartIndex: 0, malformed: null };
-      }
+    if (parsed.kind === 'lyric-text') {
+      return { timestamps, textStartIndex: index, malformed: null };
+    }
 
+    if (parsed.kind === 'malformed') {
       return {
         timestamps,
         textStartIndex: index,
@@ -277,7 +274,7 @@ function parseEnhancedSegments(
     }
 
     const parsed = parseTimestampToken(match[1]);
-    if (!parsed.ok) {
+    if (parsed.kind !== 'timestamp') {
       return {
         ok: false,
         code: parsed.code,
