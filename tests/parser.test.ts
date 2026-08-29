@@ -50,12 +50,48 @@ describe('parseLrc', () => {
     ]);
   });
 
-  it('stores unknown lines in tolerant mode', () => {
+  it('reports unclosed timestamp-like enhanced markers', () => {
+    const result = parseLrc('[00:01.00]hello<00:02.00', { mode: 'tolerant' });
+
+    expect(result.document.lines).toEqual([]);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].code).toBe('LRC_ENHANCED_UNCLOSED');
+  });
+
+  it('keeps literal angle brackets in lyric text', () => {
+    const result = parseLrc('[00:01.00]a < b', { mode: 'tolerant' });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document.lines[0].text).toBe('a < b');
+  });
+
+  it('keeps closed non-timestamp angle-bracket text in lyrics', () => {
+    const result = parseLrc('[00:01.00]Use <emphasis> here', { mode: 'tolerant' });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document.lines[0].text).toBe('Use <emphasis> here');
+  });
+
+  it('reports malformed enhanced timestamps', () => {
+    const result = parseLrc('[00:01.00]hello<00:02.0>there', { mode: 'tolerant' });
+
+    expect(result.document.lines).toEqual([]);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].code).toBe('LRC_TIMESTAMP_INVALID');
+  });
+
+  it('stores untimed lyrics as lines', () => {
     const result = parseLrc('plain text line', { mode: 'tolerant' });
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.document.lines).toEqual([]);
-    expect(result.document.unknownEntries).toEqual([{ raw: 'plain text line', location: { line: 1, column: 1 } }]);
+    expect(result.document.lines).toEqual([
+      {
+        timestamps: [],
+        text: 'plain text line',
+        location: { line: 1, column: 1 },
+      },
+    ]);
+    expect(result.document.unknownEntries).toEqual([]);
   });
 
   it('warns and recovers malformed lyric lines in tolerant mode', () => {
@@ -114,6 +150,13 @@ describe('parseLrc', () => {
   it('accepts arbitrary metadata keys', () => {
     const result = parseLrc('[foo-bar:baz]', { mode: 'tolerant' });
     expect(result.document.metadata).toEqual({ 'foo-bar': 'baz' });
+  });
+
+  it('preserves reserved metadata keys', () => {
+    const result = parseLrc('[__proto__:value]', { mode: 'tolerant' });
+
+    expect(Object.hasOwn(result.document.metadata, '__proto__')).toBe(true);
+    expect(result.document.metadata.__proto__).toBe('value');
   });
 
   it('accepts mm:ss timestamp variant', () => {

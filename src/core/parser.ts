@@ -52,6 +52,15 @@ function pushUnknownEntry(document: ParseResult['document'], raw: string, lineNu
   document.unknownEntries.push({ raw, location: toLocation(lineNumber, 1) });
 }
 
+function setMetadataValue(metadata: Record<string, string>, key: string, value: string): void {
+  Object.defineProperty(metadata, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
 function skipSpacesAndTabs(text: string, startIndex: number): number {
   let index = startIndex;
   while (index < text.length && (text[index] === ' ' || text[index] === '\t')) {
@@ -239,7 +248,7 @@ function parseMetadataLine(lineText: string, lineNumber: number, baseColumn: num
       break;
     }
 
-    entries[key] = inner.slice(separator + 1);
+    setMetadataValue(entries, key, inner.slice(separator + 1));
     parsedAny = true;
     index = skipSpacesAndTabs(lineText, closeIndex + 1);
   }
@@ -277,6 +286,20 @@ function parseEnhancedSegments(
   let match: RegExpExecArray | null;
 
   while ((match = tokenRegex.exec(text)) !== null) {
+    const parsed = parseTimestampToken(match[1]);
+    if (parsed.kind === 'lyric-text') {
+      continue;
+    }
+
+    if (parsed.kind === 'malformed') {
+      return {
+        ok: false,
+        code: parsed.code,
+        message: `Invalid enhanced timestamp "${match[1]}".`,
+        location: toLocation(lineNumber, textColumn + match.index + 1),
+      };
+    }
+
     hasToken = true;
     const before = text.slice(cursor, match.index);
     if (before.length > 0) {
@@ -285,16 +308,6 @@ function parseEnhancedSegments(
         timeMs: currentOffset,
         location: toLocation(lineNumber, textColumn + cursor),
       });
-    }
-
-    const parsed = parseTimestampToken(match[1]);
-    if (parsed.kind !== 'timestamp') {
-      return {
-        ok: false,
-        code: parsed.code,
-        message: `Invalid enhanced timestamp "${match[1]}".`,
-        location: toLocation(lineNumber, textColumn + match.index + 1),
-      };
     }
 
     if (parsed.timeMs < baseTimeMs) {
@@ -321,16 +334,27 @@ function parseEnhancedSegments(
   }
 
   if (!hasToken) {
+    const unclosedIndex = text.search(/<\d+:/);
+    if (unclosedIndex !== -1) {
+      return {
+        ok: false,
+        code: 'LRC_ENHANCED_UNCLOSED',
+        message: 'Unclosed enhanced timestamp marker.',
+        location: toLocation(lineNumber, textColumn + unclosedIndex),
+      };
+    }
+
     return { ok: true, text, segments: [] };
   }
 
   const tail = text.slice(cursor);
-  if (tail.includes('<')) {
+  const unclosedIndex = tail.search(/<\d+:/);
+  if (unclosedIndex !== -1) {
     return {
       ok: false,
       code: 'LRC_ENHANCED_UNCLOSED',
       message: 'Unclosed enhanced timestamp marker.',
-      location: toLocation(lineNumber, textColumn + cursor + tail.indexOf('<')),
+      location: toLocation(lineNumber, textColumn + cursor + unclosedIndex),
     };
   }
 
@@ -441,7 +465,9 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
 
     const metadata = parseMetadataLine(content, lineNumber, leadingWhitespaceLength + 1);
     if (metadata) {
-      Object.assign(document.metadata, metadata.entries);
+      for (const [key, value] of Object.entries(metadata.entries)) {
+        setMetadataValue(document.metadata, key, value);
+      }
       if (metadata.malformed) {
         const result = handleMalformedLine(
           options,
@@ -458,7 +484,11 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
       continue;
     }
 
-    pushUnknownEntry(document, raw, lineNumber);
+    document.lines.push({
+      timestamps: [],
+      text: content,
+      location: toLocation(lineNumber, leadingWhitespaceLength + 1),
+    });
   }
 
   return { document, diagnostics };
