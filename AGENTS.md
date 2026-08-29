@@ -7,6 +7,7 @@
 - For execution of build/test/etc. tasks, prefer harness-provided tools, then project-defined calls (such as package.json scripts), then global environment tools, in that order.
 - When project status changes meaningfully (e.g., implementation starts, features added, etc.) make sure to update all relevant docs and comments.
 - Match documentation depth to location: concise in README, more detailed in design docs or internal notes.
+- Never write temporal comments (i.e., do not mention previous states that have since been modified) as they are unhelpful and confusing, except in change logs when appropriate.
 
 # Codebase-specific guidelines
 
