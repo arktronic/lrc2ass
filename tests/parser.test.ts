@@ -72,8 +72,12 @@ describe('parseLrc', () => {
     const result = parseLrc('[ar:Artist', { mode: 'tolerant' });
 
     expect(result.document.metadata).toEqual({});
+    expect(result.document.unknownEntries).toEqual([{ raw: '[ar:Artist', location: { line: 1, column: 1 } }]);
     expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0].code).toBe('LRC_METADATA_UNCLOSED');
+    expect(result.diagnostics[0]).toMatchObject({
+      severity: 'warning',
+      code: 'LRC_METADATA_UNCLOSED',
+    });
   });
 
   it('retains the timestamp diagnostic for unclosed numeric tags', () => {
@@ -81,6 +85,18 @@ describe('parseLrc', () => {
 
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0].code).toBe('LRC_TIMESTAMP_UNCLOSED');
+  });
+
+  it('fails fast on malformed metadata in strict mode', () => {
+    const result = parseLrc('[ar:Artist] trailing\n[00:01.00]later', { mode: 'strict' });
+
+    expect(result.document.metadata).toEqual({ ar: 'Artist' });
+    expect(result.document.lines).toEqual([]);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]).toMatchObject({
+      severity: 'error',
+      code: 'LRC_METADATA_TRAILING_TEXT',
+    });
   });
 
   it('fails fast on malformed lyric lines in strict mode', () => {

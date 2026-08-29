@@ -365,7 +365,17 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
     if (hasLeadingUnclosedMetadataTag(content)) {
       const metadata = parseMetadataLine(content, lineNumber, leadingWhitespaceLength + 1);
       if (metadata?.malformed) {
-        diagnostics.push(metadata.malformed);
+        const result = handleMalformedLine(
+          options,
+          document,
+          diagnostics,
+          { ...metadata.malformed, severity: 'error' },
+          raw,
+          lineNumber,
+        );
+        if (result) {
+          return result;
+        }
       }
       continue;
     }
@@ -433,7 +443,17 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
     if (metadata) {
       Object.assign(document.metadata, metadata.entries);
       if (metadata.malformed) {
-        diagnostics.push(metadata.malformed);
+        const result = handleMalformedLine(
+          options,
+          document,
+          diagnostics,
+          { ...metadata.malformed, severity: 'error' },
+          raw,
+          lineNumber,
+        );
+        if (result) {
+          return result;
+        }
       }
       continue;
     }
