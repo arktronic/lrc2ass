@@ -187,6 +187,20 @@ function parseLeadingTimestamps(lineText: string, lineNumber: number, baseColumn
   return { timestamps, textStartIndex: index, malformed: null };
 }
 
+function hasLeadingUnclosedMetadataTag(lineText: string): boolean {
+  if (!lineText.startsWith('[') || lineText.includes(']')) {
+    return false;
+  }
+
+  const separator = lineText.indexOf(':', 1);
+  if (separator === -1) {
+    return false;
+  }
+
+  const key = lineText.slice(1, separator).trim();
+  return key.length > 0 && !/^\d+$/.test(key);
+}
+
 function parseMetadataLine(lineText: string, lineNumber: number, baseColumn: number): ParsedMetadataLine | null {
   if (!lineText.startsWith('[')) {
     return null;
@@ -345,6 +359,14 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
     const { raw, lineNumber, leadingWhitespaceLength, content } = prepareLine(lines[index], index + 1);
 
     if (content.trim().length === 0) {
+      continue;
+    }
+
+    if (hasLeadingUnclosedMetadataTag(content)) {
+      const metadata = parseMetadataLine(content, lineNumber, leadingWhitespaceLength + 1);
+      if (metadata?.malformed) {
+        diagnostics.push(metadata.malformed);
+      }
       continue;
     }
 

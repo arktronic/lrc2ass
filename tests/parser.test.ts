@@ -68,6 +68,21 @@ describe('parseLrc', () => {
     expect(result.diagnostics[0].code).toBe('LRC_TIMESTAMP_INVALID');
   });
 
+  it('reports unclosed metadata tags with the metadata diagnostic', () => {
+    const result = parseLrc('[ar:Artist', { mode: 'tolerant' });
+
+    expect(result.document.metadata).toEqual({});
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].code).toBe('LRC_METADATA_UNCLOSED');
+  });
+
+  it('retains the timestamp diagnostic for unclosed numeric tags', () => {
+    const result = parseLrc('[00:01.00', { mode: 'tolerant' });
+
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].code).toBe('LRC_TIMESTAMP_UNCLOSED');
+  });
+
   it('fails fast on malformed lyric lines in strict mode', () => {
     const text = '[00:01.00]ok\n[00:01.2]bad\n[00:02.00]later';
     const result = parseLrc(text, { mode: 'strict' });
