@@ -454,8 +454,8 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
         continue;
       }
 
+      line.text = enhanced.text;
       if (enhanced.segments.length > 0) {
-        line.text = enhanced.text;
         line.enhancedSegments = enhanced.segments;
       }
 

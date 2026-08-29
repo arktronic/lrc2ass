@@ -50,6 +50,14 @@ describe('parseLrc', () => {
     ]);
   });
 
+  it('removes marker-only enhanced timestamps from lyric text', () => {
+    const result = parseLrc('[00:01.00]<00:01.00>', { mode: 'tolerant' });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document.lines[0].text).toBe('');
+    expect(result.document.lines[0].enhancedSegments).toBeUndefined();
+  });
+
   it('reports unclosed timestamp-like enhanced markers', () => {
     const result = parseLrc('[00:01.00]hello<00:02.00', { mode: 'tolerant' });
 
