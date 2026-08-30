@@ -17,7 +17,7 @@ const options: PlanOptions = {
 describe('planEvents', () => {
   it('creates a styled, escaped dialogue event from a plain lyric', () => {
     const normalized: NormalizedLyrics = {
-      occurrences: [{ startMs: 15, endMs: 1_044, text: 'a{b}\\c\nd' }],
+      occurrences: [{ startMs: 15, endMs: 1_044, text: 'a{b}\\c\nd\re\r\nf' }],
     };
 
     const document = planEvents(normalized, options);
@@ -25,7 +25,7 @@ describe('planEvents', () => {
     expect(document.scriptInfo).toEqual({ playResX: 384, playResY: 288 });
     expect(document.styles.map((style) => style.name)).toEqual(['Lyrics', 'Preview', 'Interlude']);
     expect(document.events).toEqual([
-      { layer: 0, startMs: 20, endMs: 1_040, style: 'Lyrics', text: 'a\\{b\\}\\\\c\\Nd' },
+      { layer: 0, startMs: 20, endMs: 1_040, style: 'Lyrics', text: 'a\\{b\\}\\\\c\\Nd\\Ne\\Nf' },
     ]);
   });
 
@@ -187,6 +187,25 @@ describe('planEvents', () => {
       { layer: 0, startMs: 2_000, endMs: 3_000, style: 'Interlude', text: '3' },
       { layer: 0, startMs: 3_000, endMs: 4_000, style: 'Interlude', text: '2' },
       { layer: 0, startMs: 4_000, endMs: 5_000, style: 'Interlude', text: '1' },
+    ]);
+  });
+
+  it('waits for every overlapping lyric to end before adding an interlude', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 3_000, text: 'Long lyric' },
+        { startMs: 0, endMs: 1_000, text: 'Short lyric' },
+        { startMs: 5_000, endMs: 6_000, text: 'Next lyric' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 1_000, strategy: 'text' },
+    });
+
+    expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([
+      { layer: 0, startMs: 3_000, endMs: 5_000, style: 'Interlude', text: '♪ Instrumental ♪' },
     ]);
   });
 

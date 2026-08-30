@@ -227,7 +227,11 @@ function quantizeBoundary(timeMs: number): number {
 }
 
 function escapeAssText(text: string): string {
-  return text.replaceAll('\\', '\\\\').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('\n', '\\N');
+  return text
+    .replaceAll('\\', '\\\\')
+    .replaceAll('{', '\\{')
+    .replaceAll('}', '\\}')
+    .replace(/\r\n|\r|\n/g, '\\N');
 }
 
 function karaokeTag(effect: KaraokeEffect): string | undefined {
@@ -313,36 +317,34 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
   }
 
   const marginMs = interlude.marginMs ?? DEFAULT_INTERLUDE_MARGIN_MS;
+  let latestActiveEndMs = lyricEvents[0]?.endMs;
   for (let index = 0; index < lyricEvents.length - 1; index++) {
-    const current = lyricEvents[index];
     const next = lyricEvents[index + 1];
-    if (next.startMs - current.endMs < interlude.minGapMs) {
-      continue;
+    if (latestActiveEndMs !== undefined && next.startMs - latestActiveEndMs >= interlude.minGapMs) {
+      const startMs = quantizeBoundary(latestActiveEndMs + marginMs);
+      const endMs = quantizeBoundary(next.startMs - marginMs);
+
+      if (endMs > startMs) {
+        const style = interlude.style ?? INTERLUDE_STYLE_NAME;
+        if (interlude.strategy === 'text') {
+          events.push({ layer: 0, startMs, endMs, style, text: DEFAULT_INTERLUDE_TEXT });
+        } else {
+          for (let countdownStartMs = startMs; countdownStartMs < endMs; countdownStartMs += 1000) {
+            const countdownEndMs = Math.min(countdownStartMs + 1000, endMs);
+            const secondsRemaining = Math.ceil((endMs - countdownStartMs) / 1000);
+            events.push({
+              layer: 0,
+              startMs: countdownStartMs,
+              endMs: countdownEndMs,
+              style,
+              text: String(secondsRemaining),
+            });
+          }
+        }
+      }
     }
 
-    const startMs = quantizeBoundary(current.endMs + marginMs);
-    const endMs = quantizeBoundary(next.startMs - marginMs);
-    if (endMs <= startMs) {
-      continue;
-    }
-
-    const style = interlude.style ?? INTERLUDE_STYLE_NAME;
-    if (interlude.strategy === 'text') {
-      events.push({ layer: 0, startMs, endMs, style, text: DEFAULT_INTERLUDE_TEXT });
-      continue;
-    }
-
-    for (let countdownStartMs = startMs; countdownStartMs < endMs; countdownStartMs += 1000) {
-      const countdownEndMs = Math.min(countdownStartMs + 1000, endMs);
-      const secondsRemaining = Math.ceil((endMs - countdownStartMs) / 1000);
-      events.push({
-        layer: 0,
-        startMs: countdownStartMs,
-        endMs: countdownEndMs,
-        style,
-        text: String(secondsRemaining),
-      });
-    }
+    latestActiveEndMs = Math.max(latestActiveEndMs ?? 0, next.endMs);
   }
 }
 
