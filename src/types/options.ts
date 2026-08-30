@@ -33,6 +33,8 @@ export interface InterludeOptions {
   strategy: 'none' | 'text' | 'countdown';
   style?: string;
   marginMs?: number;
+  /** Time a lyric remains visible after its start, or its final enhanced segment start. */
+  trailingLyricDurationMs?: number;
 }
 
 export interface LayoutOptions {

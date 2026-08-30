@@ -46,8 +46,8 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Handle source overlaps through an explicit `preserve`, `truncate`, or `error` policy.
 - Negative or decreasing effective times fail in strict mode; tolerant mode clamps them and emits diagnostics.
 - Completely untimed lines remain in the model but cannot produce events without caller-supplied timing.
-- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. Karaoke durations cover timed lyric segments and do not necessarily span the complete dialogue event. The converter does not invent word timing or perform linguistic tokenization.
-- Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement.
+- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset. The converter does not invent word timing or perform linguistic tokenization.
+- Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing.
 - Escape lyric text so embedded ASS override syntax cannot execute.
 - The parser accepts documented timestamp forms with flexible hour/minute widths, validates component ranges and safe integer precision, and rejects values outside that range.
 - Public LRC and ASS models are directly editable. Callers who edit them are responsible for preserving their invariants.

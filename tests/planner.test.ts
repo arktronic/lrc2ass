@@ -80,6 +80,19 @@ describe('planEvents', () => {
     expect(event).toMatchObject({ startMs: 20, endMs: 70, text: `{\\${tag}2}one{\\${tag}3}two` });
   });
 
+  it('encodes a leading enhanced-timestamp delay as an empty karaoke syllable', () => {
+    const [event] = planEvents({
+      occurrences: [{
+        startMs: 10_000,
+        endMs: 12_000,
+        text: 'Hello',
+        segments: [{ text: 'Hello', timeMs: 500, location: { line: 1, column: 1 } }],
+      }],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    expect(event.text).toBe('{\\kf50}{\\kf150}Hello');
+  });
+
   it('adds a next-line preview for the multi-line preset', () => {
     const normalized: NormalizedLyrics = {
       occurrences: [
@@ -130,6 +143,14 @@ describe('planEvents', () => {
       ...options,
       styles: { lyrics: { primaryColor: 'red' } },
     })).toThrow(RangeError);
+    expect(() => planEvents({ occurrences: [] }, {
+      ...options,
+      styles: { lyrics: { fontName: 'Unsafe, Font' } },
+    })).toThrow(RangeError);
+    expect(() => planEvents({ occurrences: [] }, {
+      ...options,
+      styles: { lyrics: { fontName: 'Unsafe\nFont' } },
+    })).toThrow(RangeError);
   });
 
   it('adds buffered text and countdown interludes', () => {
@@ -167,5 +188,42 @@ describe('planEvents', () => {
       { layer: 0, startMs: 3_000, endMs: 4_000, style: 'Interlude', text: '2' },
       { layer: 0, startMs: 4_000, endMs: 5_000, style: 'Interlude', text: '1' },
     ]);
+  });
+
+  it('uses the final enhanced segment as the interlude tail anchor', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 10_000,
+          text: 'First line',
+          segments: [
+            { text: 'First ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'line', timeMs: 5_000, location: { line: 1, column: 7 } },
+          ],
+        },
+        { startMs: 10_000, endMs: 12_000, text: 'Second line' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 3_000, strategy: 'text', trailingLyricDurationMs: 1_500 },
+    });
+
+    expect(document.events).toContainEqual({
+      layer: 0,
+      startMs: 0,
+      endMs: 6_500,
+      style: 'Lyrics',
+      text: 'First line',
+    });
+    expect(document.events).toContainEqual({
+      layer: 0,
+      startMs: 6_500,
+      endMs: 10_000,
+      style: 'Interlude',
+      text: '♪ Instrumental ♪',
+    });
   });
 });

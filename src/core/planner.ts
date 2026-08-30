@@ -162,8 +162,8 @@ function assertAlignment(value: number, name: string): void {
 }
 
 function assertStyleOptions(styles: PlanStyleOptions, role: string): void {
-  if (styles.fontName !== undefined && styles.fontName.trim().length === 0) {
-    throw new RangeError(`${role}.fontName must not be empty`);
+  if (styles.fontName !== undefined && !/^[^,\r\n]+$/.test(styles.fontName)) {
+    throw new RangeError(`${role}.fontName must be non-empty and cannot contain commas or line breaks`);
   }
   if (styles.fontSize !== undefined && (!Number.isFinite(styles.fontSize) || styles.fontSize <= 0)) {
     throw new RangeError(`${role}.fontSize must be a positive finite number, received ${styles.fontSize}`);
@@ -210,6 +210,9 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   assertNonNegativeSafeInteger(options.interlude.minGapMs, 'interlude.minGapMs');
   if (options.interlude.marginMs !== undefined) {
     assertNonNegativeSafeInteger(options.interlude.marginMs, 'interlude.marginMs');
+  }
+  if (options.interlude.trailingLyricDurationMs !== undefined) {
+    assertNonNegativeSafeInteger(options.interlude.trailingLyricDurationMs, 'interlude.trailingLyricDurationMs');
   }
   if (!['none', 'text', 'countdown'].includes(options.interlude.strategy)) {
     throw new RangeError(`interlude.strategy is invalid: ${String(options.interlude.strategy)}`);
@@ -269,7 +272,14 @@ function karaokeText(
     return escapeAssText(text);
   }
 
-  return segments.map((segment, index) => {
+  const firstSegmentStartMs = Math.min(
+    eventEndMs,
+    Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segments[0].timeMs)),
+  );
+  const leadingDurationCentiseconds = (firstSegmentStartMs - eventStartMs) / CENTISECOND_MS;
+  const leadingTag = leadingDurationCentiseconds > 0 ? `{\\${tag}${leadingDurationCentiseconds}}` : '';
+
+  return leadingTag + segments.map((segment, index) => {
     const segmentStart = Math.min(eventEndMs, Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segment.timeMs)));
     const nextSegment = segments[index + 1];
     const segmentEnd = nextSegment
@@ -278,6 +288,22 @@ function karaokeText(
     const durationCentiseconds = (segmentEnd - segmentStart) / CENTISECOND_MS;
     return `{\\${tag}${durationCentiseconds}}${escapeAssText(segment.text)}`;
   }).join('');
+}
+
+function lyricEndMs(
+  occurrence: NormalizedLyrics['occurrences'][number],
+  options: ResolvedPlanOptions,
+): number {
+  const trailingDurationMs = options.interlude?.strategy === 'none'
+    ? undefined
+    : options.interlude?.trailingLyricDurationMs;
+  if (trailingDurationMs === undefined) {
+    return occurrence.endMs;
+  }
+
+  const finalSegment = occurrence.segments?.at(-1);
+  const anchorMs = finalSegment ? occurrence.startMs + finalSegment.timeMs : occurrence.startMs;
+  return Math.min(occurrence.endMs, anchorMs + trailingDurationMs);
 }
 
 function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options: ResolvedPlanOptions): void {
@@ -336,7 +362,7 @@ export function planEvents(
 
   for (const occurrence of normalized.occurrences) {
     const startMs = quantizeBoundary(occurrence.startMs);
-    const endMs = quantizeBoundary(occurrence.endMs);
+    const endMs = quantizeBoundary(lyricEndMs(occurrence, options));
     if (endMs <= startMs) {
       continue;
     }

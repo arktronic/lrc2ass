@@ -589,6 +589,36 @@ describe('normalizeLyrics', () => {
     expect(resErrorStrict.normalized.occurrences).toEqual([]);
   });
 
+  it('caps a preserved enhanced overlap at the t_time duration bound', () => {
+    const document: LrcDocument = {
+      metadata: { t_time: '00:06' },
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Held note',
+          enhancedSegments: [
+            { text: 'Held ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'note', timeMs: 4000, location: { line: 1, column: 6 } },
+          ],
+          location: { line: 1, column: 1 },
+        },
+        {
+          timestamps: [{ timeMs: 3000, location: { line: 2, column: 1 } }],
+          text: 'Next line',
+          location: { line: 2, column: 1 },
+        },
+      ],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, {
+      overlapPolicy: 'preserve',
+      defaultTrailingDurationMs: 2000,
+    });
+
+    expect(result.normalized.occurrences[0].endMs).toBe(6000);
+  });
+
   it('adjusts enhanced segment relative offsets when line start is clamped in tolerant mode', () => {
     // Line starts at 500ms, offset is -1000ms -> unclamped effective start is -500ms
     // Enhanced segments: word 1 at offset 0 (i.e. -500ms), word 2 at offset 800ms (i.e. +300ms)
@@ -846,5 +876,26 @@ describe('normalizeLyrics', () => {
       severity: 'error',
     });
     expect(strict.normalized.occurrences).toEqual([]);
+  });
+
+  it('identifies the final enhanced segment as the invalid duration-bound anchor', () => {
+    const document: LrcDocument = {
+      metadata: { length: '00:04' },
+      lines: [{
+        timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+        text: 'Held note',
+        enhancedSegments: [
+          { text: 'Held ', timeMs: 0, location: { line: 1, column: 1 } },
+          { text: 'note', timeMs: 4000, location: { line: 1, column: 6 } },
+        ],
+        location: { line: 1, column: 1 },
+      }],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { defaultTrailingDurationMs: 1000 });
+
+    expect(result.diagnostics[0].message).toContain('final enhanced segment start');
+    expect(result.normalized.occurrences[0].endMs).toBe(6000);
   });
 });
