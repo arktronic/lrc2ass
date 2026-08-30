@@ -60,6 +60,11 @@ function shiftSegments(segments: EnhancedSegment[], shiftMs: number): EnhancedSe
   }));
 }
 
+function addSafeMilliseconds(left: number, right: number): number | undefined {
+  const total = left + right;
+  return Number.isSafeInteger(total) ? total : undefined;
+}
+
 /**
  * Applies offsets, expands repeated timestamps, orders occurrences, and infers boundaries.
  */
@@ -80,6 +85,15 @@ export function normalizeLyrics(
       code: 'LRC_INVALID_TIMING_METADATA',
       message: `Metadata ${key} has an invalid timing value: "${value}".`,
       severity: mode === 'strict' ? 'error' : 'warning',
+    });
+  };
+
+  const reportTimingOverflow = (message: string, location: SourceLocation): void => {
+    diagnostics.push({
+      code: 'LRC_TIME_OUT_OF_RANGE',
+      message,
+      severity: mode === 'strict' ? 'error' : 'warning',
+      location,
     });
   };
 
@@ -169,7 +183,14 @@ export function normalizeLyrics(
 
     for (let t = 0; t < line.timestamps.length; t++) {
       const ts = line.timestamps[t];
-      const unclampedStartMs = ts.timeMs + totalOffsetMs;
+      const calculatedStartMs = addSafeMilliseconds(ts.timeMs, totalOffsetMs);
+      if (calculatedStartMs === undefined) {
+        reportTimingOverflow(
+          `Timestamp ${ts.timeMs}ms cannot be combined with offset ${totalOffsetMs}ms without exceeding the supported range.`,
+          ts.location ?? line.location,
+        );
+      }
+      const unclampedStartMs = calculatedStartMs ?? Number.MAX_SAFE_INTEGER;
       let effectiveStartMs = unclampedStartMs;
       const prevTs = t === 0 ? previousLineTimeMs : lineLevelPrevTs;
 
@@ -278,8 +299,22 @@ export function normalizeLyrics(
     let trailingEnhancedEndMs: number | undefined;
     if (curr.segments && curr.segments.length > 0) {
       const lastSegment = curr.segments[curr.segments.length - 1];
-      finalEnhancedSegmentStartMs = curr.startMs + lastSegment.timeMs;
-      trailingEnhancedEndMs = finalEnhancedSegmentStartMs + defaultTrailingDurationMs;
+      const enhancedSegmentStartMs = addSafeMilliseconds(curr.startMs, lastSegment.timeMs);
+      if (enhancedSegmentStartMs === undefined) {
+        reportTimingOverflow(
+          `Final enhanced segment offset ${lastSegment.timeMs}ms exceeds the supported range for lyric start ${curr.startMs}ms.`,
+          curr.location,
+        );
+      }
+      finalEnhancedSegmentStartMs = enhancedSegmentStartMs ?? Number.MAX_SAFE_INTEGER;
+      const enhancedTrailingEndMs = addSafeMilliseconds(finalEnhancedSegmentStartMs, defaultTrailingDurationMs);
+      if (enhancedTrailingEndMs === undefined) {
+        reportTimingOverflow(
+          `Final enhanced segment start ${finalEnhancedSegmentStartMs}ms cannot be extended by ${defaultTrailingDurationMs}ms without exceeding the supported range.`,
+          curr.location,
+        );
+      }
+      trailingEnhancedEndMs = enhancedTrailingEndMs ?? Number.MAX_SAFE_INTEGER;
     }
 
     if (nextStartMs !== undefined) {
@@ -317,7 +352,14 @@ export function normalizeLyrics(
       if (finalDurationBound?.value !== undefined) {
         endMs = finalDurationBound.value;
       } else {
-        endMs = trailingEnhancedEndMs ?? (curr.startMs + defaultTrailingDurationMs);
+        const plainTrailingEndMs = addSafeMilliseconds(curr.startMs, defaultTrailingDurationMs);
+        if (trailingEnhancedEndMs === undefined && plainTrailingEndMs === undefined) {
+          reportTimingOverflow(
+            `Final lyric start ${curr.startMs}ms cannot be extended by ${defaultTrailingDurationMs}ms without exceeding the supported range.`,
+            curr.location,
+          );
+        }
+        endMs = trailingEnhancedEndMs ?? plainTrailingEndMs ?? Number.MAX_SAFE_INTEGER;
       }
     }
 

@@ -917,4 +917,32 @@ describe('normalizeLyrics', () => {
     expect(result.diagnostics[0].message).toContain('final enhanced segment start');
     expect(result.normalized.occurrences[0].endMs).toBe(6000);
   });
+
+  it('handles enhanced trailing-duration overflow without storing an unsafe boundary', () => {
+    const document: LrcDocument = {
+      metadata: {},
+      lines: [{
+        timestamps: [{ timeMs: Number.MAX_SAFE_INTEGER - 10, location: { line: 1, column: 1 } }],
+        text: 'Final note',
+        enhancedSegments: [
+          { text: 'Final ', timeMs: 0, location: { line: 1, column: 1 } },
+          { text: 'note', timeMs: 5, location: { line: 1, column: 7 } },
+        ],
+        location: { line: 1, column: 1 },
+      }],
+      unknownEntries: [],
+    };
+
+    const tolerant = normalizeLyrics(document, { defaultTrailingDurationMs: 10 });
+    const strict = normalizeLyrics(document, { mode: 'strict', defaultTrailingDurationMs: 10 });
+
+    expect(tolerant.diagnostics).toEqual([
+      expect.objectContaining({ code: 'LRC_TIME_OUT_OF_RANGE', severity: 'warning' }),
+    ]);
+    expect(tolerant.normalized.occurrences[0].endMs).toBe(Number.MAX_SAFE_INTEGER);
+    expect(strict.diagnostics).toEqual([
+      expect.objectContaining({ code: 'LRC_TIME_OUT_OF_RANGE', severity: 'error' }),
+    ]);
+    expect(strict.normalized.occurrences).toEqual([]);
+  });
 });
