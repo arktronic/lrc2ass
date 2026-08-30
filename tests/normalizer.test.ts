@@ -878,6 +878,25 @@ describe('normalizeLyrics', () => {
     expect(strict.normalized.occurrences).toEqual([]);
   });
 
+  it('uses the next usable final duration bound in tolerant mode', () => {
+    const document: LrcDocument = {
+      metadata: { length: '00:01', t_time: '00:04' },
+      lines: [{
+        timestamps: [{ timeMs: 2000, location: { line: 1, column: 1 } }],
+        text: 'Late lyric',
+        location: { line: 1, column: 1 },
+      }],
+      unknownEntries: [],
+    };
+
+    const result = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 1000 });
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ code: 'LRC_FINAL_DURATION_BEFORE_LYRIC', severity: 'warning' }),
+    ]);
+    expect(result.normalized.occurrences[0].endMs).toBe(4000);
+  });
+
   it('identifies the final enhanced segment as the invalid duration-bound anchor', () => {
     const document: LrcDocument = {
       metadata: { length: '00:04' },

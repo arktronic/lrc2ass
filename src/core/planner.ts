@@ -109,6 +109,15 @@ function definedLayoutOverrides(overrides: Partial<LayoutOptions> | undefined): 
   ) as Partial<LayoutOptions>;
 }
 
+function definedInterludeOverrides(overrides: PlanOverrideOptions['interlude']): Partial<NonNullable<PlanOptions['interlude']>> {
+  if (!overrides) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(overrides).filter(([, value]) => value !== undefined),
+  ) as Partial<NonNullable<PlanOptions['interlude']>>;
+}
+
 function mergeStyleOptions(...styles: Array<PlanStyleOptions | undefined>): PlanStyleOptions {
   return Object.assign({}, ...styles.map((style) => {
     if (!style) {
@@ -136,10 +145,13 @@ function resolvePlanOptions(baseOptions: PlanOptions, overrides: PlanOverrideOpt
   if (!presetDefaults) {
     throw new RangeError(`preset must be "single-line" or "multi-line", received ${String(preset)}`);
   }
+  const interlude = baseOptions.interlude
+    ? { ...baseOptions.interlude, ...definedInterludeOverrides(overrides?.interlude) }
+    : overrides?.interlude;
   return {
     ...baseOptions,
     karaokeEffect: overrides?.karaokeEffect ?? baseOptions.karaokeEffect,
-    interlude: overrides?.interlude ?? baseOptions.interlude,
+    interlude,
     preset,
     layout: {
       ...baseOptions.layout,

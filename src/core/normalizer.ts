@@ -258,14 +258,11 @@ export function normalizeLyrics(
     nextDistinctStarts[i] = nextDistinct;
   }
 
-  const finalDurationBoundMs = metadataLengthMs ?? metadataTrackTimeMs ?? validatedTrackEndMs;
-  const finalDurationBoundName = metadataLengthMs !== undefined
-    ? 'length metadata'
-    : metadataTrackTimeMs !== undefined
-      ? 't_time metadata'
-      : validatedTrackEndMs !== undefined
-        ? 'trackEndMs'
-        : undefined;
+  const finalDurationCandidates = [
+    { name: 'length metadata', value: metadataLengthMs },
+    { name: 't_time metadata', value: metadataTrackTimeMs },
+    { name: 'trackEndMs', value: validatedTrackEndMs },
+  ];
 
   // Infer occurrence boundaries
   const occurrences: Occurrence[] = [];
@@ -290,27 +287,38 @@ export function normalizeLyrics(
       // Under 'preserve', if enhanced segments extend to or beyond nextStartMs, allow the line to extend with trailing duration
       if (overlapPolicy === 'preserve' && finalEnhancedSegmentStartMs !== undefined && finalEnhancedSegmentStartMs >= endMs) {
         endMs = trailingEnhancedEndMs!;
-        if (finalDurationBoundMs !== undefined
-          && finalDurationBoundMs > finalEnhancedSegmentStartMs
-          && endMs > finalDurationBoundMs) {
-          endMs = finalDurationBoundMs;
+        const overlapDurationBound = finalDurationCandidates.find((candidate) =>
+          candidate.value !== undefined && candidate.value > finalEnhancedSegmentStartMs,
+        )?.value;
+        if (overlapDurationBound !== undefined && endMs > overlapDurationBound) {
+          endMs = overlapDurationBound;
         }
       }
-    } else if (finalDurationBoundMs !== undefined && finalDurationBoundMs > (finalEnhancedSegmentStartMs ?? curr.startMs)) {
-      endMs = finalDurationBoundMs;
     } else {
-      if (finalDurationBoundMs !== undefined && finalDurationBoundName) {
-        const finalTimingAnchorName = finalEnhancedSegmentStartMs === undefined
-          ? 'final lyric start'
-          : 'final enhanced segment start';
-        diagnostics.push({
-          code: 'LRC_FINAL_DURATION_BEFORE_LYRIC',
-          message: `${finalDurationBoundName} (${finalDurationBoundMs}ms) is not later than the ${finalTimingAnchorName}.`,
-          severity: mode === 'strict' ? 'error' : 'warning',
-          location: curr.location,
-        });
+      const finalTimingAnchorMs = finalEnhancedSegmentStartMs ?? curr.startMs;
+      const finalTimingAnchorName = finalEnhancedSegmentStartMs === undefined
+        ? 'final lyric start'
+        : 'final enhanced segment start';
+      const finalDurationBound = finalDurationCandidates.find((candidate) => {
+        if (candidate.value === undefined) {
+          return false;
+        }
+        if (candidate.value <= finalTimingAnchorMs) {
+          diagnostics.push({
+            code: 'LRC_FINAL_DURATION_BEFORE_LYRIC',
+            message: `${candidate.name} (${candidate.value}ms) is not later than the ${finalTimingAnchorName}.`,
+            severity: mode === 'strict' ? 'error' : 'warning',
+            location: curr.location,
+          });
+          return false;
+        }
+        return true;
+      });
+      if (finalDurationBound?.value !== undefined) {
+        endMs = finalDurationBound.value;
+      } else {
+        endMs = trailingEnhancedEndMs ?? (curr.startMs + defaultTrailingDurationMs);
       }
-      endMs = trailingEnhancedEndMs ?? (curr.startMs + defaultTrailingDurationMs);
     }
 
     // Ensure endMs is never less than the last enhanced segment start (unless truncate explicitly requested)

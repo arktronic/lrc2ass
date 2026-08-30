@@ -39,6 +39,38 @@ describe('planEvents', () => {
     expect(document.styles[0]).toMatchObject({ alignment: 8, marginLeft: 10, marginRight: 10 });
   });
 
+  it('merges defined interlude overrides with inherited settings', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 5_000, text: 'First' },
+        { startMs: 10_000, endMs: 12_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(
+      normalized,
+      {
+        ...options,
+        interlude: {
+          minGapMs: 1_000,
+          strategy: 'text',
+          marginMs: 500,
+          style: 'Inherited',
+          trailingLyricDurationMs: 5_000,
+        },
+      },
+      { interlude: { minGapMs: 2_000, strategy: 'countdown' } },
+    );
+
+    expect(document.styles.map((style) => style.name)).toContain('Inherited');
+    expect(document.events.filter((event) => event.style === 'Inherited')).toEqual([
+      { layer: 0, startMs: 5_500, endMs: 6_500, style: 'Inherited', text: '4' },
+      { layer: 0, startMs: 6_500, endMs: 7_500, style: 'Inherited', text: '3' },
+      { layer: 0, startMs: 7_500, endMs: 8_500, style: 'Inherited', text: '2' },
+      { layer: 0, startMs: 8_500, endMs: 9_500, style: 'Inherited', text: '1' },
+    ]);
+  });
+
   it('resolves preset defaults before base and caller style overrides', () => {
     const document = planEvents(
       { occurrences: [] },
