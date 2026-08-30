@@ -4,18 +4,22 @@
 
 A TypeScript library and Node.js CLI for converting LRC lyrics into readable, libass-compatible ASS karaoke subtitles.
 
-## Planned Capabilities
+## Implemented
 
 - Simple and enhanced word-timed LRC.
 - Multiple timestamps per lyric line.
-- Line timing and ASS karaoke highlighting.
-- Configurable styles, layout, timing, and instrumental gaps.
-- A multi-line presentation preset.
+- Normalized line timing, overlap policies, and final-duration inference.
+- ASS event planning with karaoke highlighting, configurable role styles and layout, instrumental gaps, and single-line/multi-line presets.
 - Strict and tolerant parsing with structured diagnostics.
 - Editable LRC and ASS document models.
-- Staged APIs, a one-step conversion API, and a CLI.
+- Staged parsing, normalization, and event-planning APIs.
 
-The dependency-free vanilla JS core is intended for all modern JavaScript runtimes. Output will be deterministic and target libass.
+## Pending
+
+- ASS serialization and the one-step conversion output API.
+- CLI support.
+
+The dependency-free vanilla JS core is intended for all modern JavaScript runtimes. Planned output is deterministic and targets libass.
 
 ## Status
 

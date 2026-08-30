@@ -30,9 +30,10 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - The core has no runtime dependencies or Node.js APIs. It supports ESM, browsers, and other modern JavaScript runtimes.
 - LRC and ASS models are public and editable. The LRC model preserves source order, locations, multiple timestamps, and recoverable unknown entries, but need not reproduce the original bytes.
 - Parsing requires an explicit `strict` or `tolerant` mode. Recoverable source problems use stable structured diagnostics; exceptions are reserved for API misuse and broken invariants.
+- Diagnostic fields are public, but diagnostic code strings remain internal until the public API is stabilized.
 - Times use integer milliseconds until conversion to ASS centiseconds.
 - Presets are immutable option sets, not separate conversion paths. Explicit caller options override preset values.
-- Serialization is deterministic. Public models, options, result shapes, diagnostic codes, presets, and serialized output are compatibility-sensitive.
+- Serialization is deterministic. Public models, options, result shapes, presets, and serialized output are compatibility-sensitive.
 - libass is the rendering baseline; renderer-specific extensions are initially out of scope.
 
 ## Conversion Rules
@@ -40,21 +41,30 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Apply metadata and caller offsets before normalization.
 - Expand every line timestamp into an occurrence. Equal starts remain distinct and retain source order.
 - For enhanced repeated lines, apply each inline timestamp's offset from the first line timestamp to every occurrence.
-- Infer a line end from the next later occurrence. For the final line, use LRC length metadata, a caller-provided track end/duration, or a default fallback, in that order.
+- Infer a line end from the next later occurrence. For the final line, use LRC `length` metadata, `t_time` metadata, a caller-provided track end/duration, or the exported 5000 ms fallback, in that order. A bound that is not later than the final lyric is diagnosed and falls back in tolerant mode.
 - Infer an enhanced segment's end from the next inline timestamp or the containing line end.
 - Handle source overlaps through an explicit `preserve`, `truncate`, or `error` policy.
 - Negative or decreasing effective times fail in strict mode; tolerant mode clamps them and emits diagnostics.
 - Completely untimed lines remain in the model but cannot produce events without caller-supplied timing.
-- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. The converter does not invent word timing or perform linguistic tokenization.
-- Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement.
+- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset. The converter does not invent word timing or perform linguistic tokenization.
+- Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing.
 - Escape lyric text so embedded ASS override syntax cannot execute.
+- The parser accepts documented timestamp forms with flexible hour/minute widths, validates component ranges and safe integer precision, and rejects values outside that range.
+- Public LRC and ASS models are directly editable. Callers who edit them are responsible for preserving their invariants.
 
 ## ASS Output
 
 - Generate ASS `v4.00+` with `[Script Info]`, `[V4+ Styles]`, and `[Events]`.
 - Include explicit play resolution and at least one lyric style.
-- Quantize boundaries to centiseconds once. Derive karaoke durations from adjacent quantized boundaries so they sum to the event duration.
-- Use stable ordering, naming, escaping, numeric formatting, and line endings.
+- Quantize boundaries to centiseconds once. Derive karaoke durations from adjacent quantized boundaries; events that collapse to zero duration are omitted.
+- Use stable ordering, naming, escaping, numeric formatting, and line endings. Planner events are ordered by start time, layer, then source insertion order.
+
+### Event Planner Defaults
+
+- The planner emits deterministic `Lyrics`, `Preview`, and `Interlude` styles. `PlanStyleOptions` configures font, colors, alignment, and margins for each role; colors use `#RRGGBB` values. A named interlude style is emitted when selected.
+- `single-line` is the default preset and renders active lyrics only. `multi-line` also displays one next strictly later lyric as a non-karaoke `Preview` event from the active group start until that lyric starts. Simultaneous lyrics are active together and do not create duplicate previews.
+- A `text` interlude displays `♪ Instrumental ♪`; a `countdown` interlude emits one-second events labelled with whole seconds remaining.
+- Planner options are validated at runtime and invalid values throw `RangeError`.
 
 ## Configuration Areas
 
@@ -66,6 +76,8 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Metadata emission and serialization formatting.
 
 Options remain typed, declarative, and serializable. Advanced callers can edit the ASS model directly.
+
+For `convert()`, normalization inherits `parse.mode` unless `normalize.mode` explicitly overrides it. Both default to tolerant mode.
 
 ## Verification
 

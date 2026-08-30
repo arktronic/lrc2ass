@@ -227,4 +227,21 @@ describe('parseLrc', () => {
     expect(result.document.lines).toHaveLength(1);
     expect(result.document.lines[0].text).toBe('line1');
   });
+
+  it('rejects timestamps that exceed JavaScript safe integer precision', () => {
+    const input = '[9999999999999999:00:00.00]too late';
+    const tolerant = parseLrc(input, { mode: 'tolerant' });
+    const strict = parseLrc(input, { mode: 'strict' });
+
+    expect(tolerant.document.unknownEntries).toHaveLength(1);
+    expect(tolerant.diagnostics[0]).toMatchObject({
+      code: 'LRC_TIMESTAMP_OUT_OF_RANGE',
+      severity: 'warning',
+    });
+    expect(strict.document.lines).toEqual([]);
+    expect(strict.diagnostics[0]).toMatchObject({
+      code: 'LRC_TIMESTAMP_OUT_OF_RANGE',
+      severity: 'error',
+    });
+  });
 });

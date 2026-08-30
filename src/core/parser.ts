@@ -124,10 +124,15 @@ function parseTimestampToken(token: string): ParsedTimestamp {
 
     const fraction = dotMatch[4];
     const fractionMs = fraction.length === 2 ? Number.parseInt(fraction, 10) * 10 : Number.parseInt(fraction, 10);
-    return {
-      kind: 'timestamp',
-      timeMs: hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + fractionMs,
-    };
+    const timeMs = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + fractionMs;
+    if (!Number.isSafeInteger(timeMs)) {
+      return {
+        kind: 'malformed',
+        code: 'LRC_TIMESTAMP_OUT_OF_RANGE',
+        message: `Timestamp "${token}" exceeds the supported range.`,
+      };
+    }
+    return { kind: 'timestamp', timeMs };
   }
 
   if (noDotMatch) {
@@ -143,10 +148,15 @@ function parseTimestampToken(token: string): ParsedTimestamp {
 
     const fraction = noDotMatch[3];
     const fractionMs = fraction === undefined ? 0 : Number.parseInt(fraction, 10) * 10;
-    return {
-      kind: 'timestamp',
-      timeMs: minutes * 60_000 + seconds * 1_000 + fractionMs,
-    };
+    const timeMs = minutes * 60_000 + seconds * 1_000 + fractionMs;
+    if (!Number.isSafeInteger(timeMs)) {
+      return {
+        kind: 'malformed',
+        code: 'LRC_TIMESTAMP_OUT_OF_RANGE',
+        message: `Timestamp "${token}" exceeds the supported range.`,
+      };
+    }
+    return { kind: 'timestamp', timeMs };
   }
 
   return {

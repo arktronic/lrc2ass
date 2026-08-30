@@ -33,6 +33,8 @@ export interface InterludeOptions {
   strategy: 'none' | 'text' | 'countdown';
   style?: string;
   marginMs?: number;
+  /** Time a lyric remains visible after its start, or its final enhanced segment start. */
+  trailingLyricDurationMs?: number;
 }
 
 export interface LayoutOptions {
@@ -44,18 +46,43 @@ export interface LayoutOptions {
   marginVertical: number;
 }
 
+/** High-level visual settings for a generated ASS style. Colors use `#RRGGBB`. */
+export interface PlanStyleOptions {
+  fontName?: string;
+  fontSize?: number;
+  primaryColor?: string;
+  secondaryColor?: string;
+  outlineColor?: string;
+  backColor?: string;
+  backOpacity?: number;
+  alignment?: AssAlignment;
+  marginLeft?: number;
+  marginRight?: number;
+  marginVertical?: number;
+}
+
+export interface PlanStylesOptions {
+  lyrics?: PlanStyleOptions;
+  preview?: PlanStyleOptions;
+  interlude?: PlanStyleOptions;
+}
+
+export type PlanPreset = 'single-line' | 'multi-line';
+
 export interface PlanOptions {
   karaokeEffect: KaraokeEffect;
   layout: LayoutOptions;
   interlude?: InterludeOptions;
-  preset?: 'single-line' | 'multi-line';
+  preset?: PlanPreset;
+  styles?: PlanStylesOptions;
 }
 
 export interface PlanOverrideOptions {
   karaokeEffect?: KaraokeEffect;
   layout?: Partial<LayoutOptions>;
   interlude?: InterludeOptions;
-  preset?: 'single-line' | 'multi-line';
+  preset?: PlanPreset;
+  styles?: PlanStylesOptions;
 }
 
 export interface SerializeOptions {

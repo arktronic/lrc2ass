@@ -7,8 +7,7 @@ import type {
   Occurrence,
   SourceLocation,
 } from '../types/index.js';
-
-const DEFAULT_TRAILING_DURATION_MS = 5000;
+import { DEFAULT_TRAILING_DURATION_MS } from './defaults.js';
 
 interface UnresolvedOccurrence {
   startMs: number;
@@ -39,16 +38,16 @@ function parseLengthMetadata(value: string | undefined): number | undefined {
   return undefined;
 }
 
-function parseOffsetMetadata(value: string | undefined): number {
-  if (!value) {
+function parseOffsetMetadata(value: string | undefined): number | undefined {
+  if (value === undefined) {
     return 0;
   }
   const trimmed = value.trim();
   if (!/^[-+]?\d+$/.test(trimmed)) {
-    return 0;
+    return undefined;
   }
   const parsed = Number.parseInt(trimmed, 10);
-  return Number.isSafeInteger(parsed) ? parsed : 0;
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 function shiftSegments(segments: EnhancedSegment[], shiftMs: number): EnhancedSegment[] {
@@ -61,6 +60,11 @@ function shiftSegments(segments: EnhancedSegment[], shiftMs: number): EnhancedSe
   }));
 }
 
+function addSafeMilliseconds(left: number, right: number): number | undefined {
+  const total = left + right;
+  return Number.isSafeInteger(total) ? total : undefined;
+}
+
 /**
  * Applies offsets, expands repeated timestamps, orders occurrences, and infers boundaries.
  */
@@ -70,9 +74,38 @@ export function normalizeLyrics(
 ): NormalizeResult {
   const mode = options.mode ?? 'tolerant';
   const overlapPolicy = options.overlapPolicy ?? 'preserve';
-  const metadataOffsetMs = parseOffsetMetadata(document.metadata.offset);
-
   const diagnostics: Diagnostic[] = [];
+  const parsedMetadataOffsetMs = parseOffsetMetadata(document.metadata.offset);
+  const metadataOffsetMs = parsedMetadataOffsetMs ?? 0;
+  const metadataLengthMs = parseLengthMetadata(document.metadata.length);
+  const metadataTrackTimeMs = parseLengthMetadata(document.metadata.t_time);
+
+  const reportInvalidMetadata = (key: string, value: string): void => {
+    diagnostics.push({
+      code: 'LRC_INVALID_TIMING_METADATA',
+      message: `Metadata ${key} has an invalid timing value: "${value}".`,
+      severity: mode === 'strict' ? 'error' : 'warning',
+    });
+  };
+
+  const reportTimingOverflow = (message: string, location: SourceLocation): void => {
+    diagnostics.push({
+      code: 'LRC_TIME_OUT_OF_RANGE',
+      message,
+      severity: mode === 'strict' ? 'error' : 'warning',
+      location,
+    });
+  };
+
+  if (document.metadata.offset !== undefined && parsedMetadataOffsetMs === undefined) {
+    reportInvalidMetadata('offset', document.metadata.offset);
+  }
+  if (document.metadata.length !== undefined && metadataLengthMs === undefined) {
+    reportInvalidMetadata('length', document.metadata.length);
+  }
+  if (document.metadata.t_time !== undefined && metadataTrackTimeMs === undefined) {
+    reportInvalidMetadata('t_time', document.metadata.t_time);
+  }
 
   // Validate caller offsetMs
   let callerOffsetMs = 0;
@@ -150,7 +183,14 @@ export function normalizeLyrics(
 
     for (let t = 0; t < line.timestamps.length; t++) {
       const ts = line.timestamps[t];
-      const unclampedStartMs = ts.timeMs + totalOffsetMs;
+      const calculatedStartMs = addSafeMilliseconds(ts.timeMs, totalOffsetMs);
+      if (calculatedStartMs === undefined) {
+        reportTimingOverflow(
+          `Timestamp ${ts.timeMs}ms cannot be combined with offset ${totalOffsetMs}ms without exceeding the supported range.`,
+          ts.location ?? line.location,
+        );
+      }
+      const unclampedStartMs = calculatedStartMs ?? Number.MAX_SAFE_INTEGER;
       let effectiveStartMs = unclampedStartMs;
       const prevTs = t === 0 ? previousLineTimeMs : lineLevelPrevTs;
 
@@ -239,7 +279,11 @@ export function normalizeLyrics(
     nextDistinctStarts[i] = nextDistinct;
   }
 
-  const metadataLengthMs = parseLengthMetadata(document.metadata.length) ?? parseLengthMetadata(document.metadata.t_time);
+  const finalDurationCandidates = [
+    { name: 'length metadata', value: metadataLengthMs },
+    { name: 't_time metadata', value: metadataTrackTimeMs },
+    { name: 'trackEndMs', value: validatedTrackEndMs },
+  ];
 
   // Infer occurrence boundaries
   const occurrences: Occurrence[] = [];
@@ -251,36 +295,77 @@ export function normalizeLyrics(
     const nextStartMs = nextDistinctStarts[i];
 
     // Enhanced segment boundary calculation
-    let minEnhancedEndMs: number | undefined;
+    let finalEnhancedSegmentStartMs: number | undefined;
     let trailingEnhancedEndMs: number | undefined;
     if (curr.segments && curr.segments.length > 0) {
       const lastSegment = curr.segments[curr.segments.length - 1];
-      minEnhancedEndMs = curr.startMs + lastSegment.timeMs;
-      trailingEnhancedEndMs = minEnhancedEndMs + defaultTrailingDurationMs;
+      const enhancedSegmentStartMs = addSafeMilliseconds(curr.startMs, lastSegment.timeMs);
+      if (enhancedSegmentStartMs === undefined) {
+        reportTimingOverflow(
+          `Final enhanced segment offset ${lastSegment.timeMs}ms exceeds the supported range for lyric start ${curr.startMs}ms.`,
+          curr.location,
+        );
+      }
+      finalEnhancedSegmentStartMs = enhancedSegmentStartMs ?? Number.MAX_SAFE_INTEGER;
+      const enhancedTrailingEndMs = addSafeMilliseconds(finalEnhancedSegmentStartMs, defaultTrailingDurationMs);
+      if (enhancedTrailingEndMs === undefined) {
+        reportTimingOverflow(
+          `Final enhanced segment start ${finalEnhancedSegmentStartMs}ms cannot be extended by ${defaultTrailingDurationMs}ms without exceeding the supported range.`,
+          curr.location,
+        );
+      }
+      trailingEnhancedEndMs = enhancedTrailingEndMs ?? Number.MAX_SAFE_INTEGER;
     }
 
     if (nextStartMs !== undefined) {
       endMs = nextStartMs;
       // Under 'preserve', if enhanced segments extend to or beyond nextStartMs, allow the line to extend with trailing duration
-      if (overlapPolicy === 'preserve' && minEnhancedEndMs !== undefined && minEnhancedEndMs >= endMs) {
+      if (overlapPolicy === 'preserve' && finalEnhancedSegmentStartMs !== undefined && finalEnhancedSegmentStartMs >= endMs) {
         endMs = trailingEnhancedEndMs!;
-        if (metadataLengthMs !== undefined && metadataLengthMs > minEnhancedEndMs && endMs > metadataLengthMs) {
-          endMs = metadataLengthMs;
-        } else if (validatedTrackEndMs !== undefined && validatedTrackEndMs > minEnhancedEndMs && endMs > validatedTrackEndMs) {
-          endMs = validatedTrackEndMs;
+        const overlapDurationBound = finalDurationCandidates.find((candidate) =>
+          candidate.value !== undefined && candidate.value > finalEnhancedSegmentStartMs,
+        )?.value;
+        if (overlapDurationBound !== undefined && endMs > overlapDurationBound) {
+          endMs = overlapDurationBound;
         }
       }
-    } else if (metadataLengthMs !== undefined && metadataLengthMs > (minEnhancedEndMs ?? curr.startMs)) {
-      endMs = metadataLengthMs;
-    } else if (validatedTrackEndMs !== undefined && validatedTrackEndMs > (minEnhancedEndMs ?? curr.startMs)) {
-      endMs = validatedTrackEndMs;
     } else {
-      endMs = trailingEnhancedEndMs ?? (curr.startMs + defaultTrailingDurationMs);
+      const finalTimingAnchorMs = finalEnhancedSegmentStartMs ?? curr.startMs;
+      const finalTimingAnchorName = finalEnhancedSegmentStartMs === undefined
+        ? 'final lyric start'
+        : 'final enhanced segment start';
+      const finalDurationBound = finalDurationCandidates.find((candidate) => {
+        if (candidate.value === undefined) {
+          return false;
+        }
+        if (candidate.value <= finalTimingAnchorMs) {
+          diagnostics.push({
+            code: 'LRC_FINAL_DURATION_BEFORE_LYRIC',
+            message: `${candidate.name} (${candidate.value}ms) is not later than the ${finalTimingAnchorName}.`,
+            severity: mode === 'strict' ? 'error' : 'warning',
+            location: curr.location,
+          });
+          return false;
+        }
+        return true;
+      });
+      if (finalDurationBound?.value !== undefined) {
+        endMs = finalDurationBound.value;
+      } else {
+        const plainTrailingEndMs = addSafeMilliseconds(curr.startMs, defaultTrailingDurationMs);
+        if (trailingEnhancedEndMs === undefined && plainTrailingEndMs === undefined) {
+          reportTimingOverflow(
+            `Final lyric start ${curr.startMs}ms cannot be extended by ${defaultTrailingDurationMs}ms without exceeding the supported range.`,
+            curr.location,
+          );
+        }
+        endMs = trailingEnhancedEndMs ?? plainTrailingEndMs ?? Number.MAX_SAFE_INTEGER;
+      }
     }
 
     // Ensure endMs is never less than the last enhanced segment start (unless truncate explicitly requested)
-    if (minEnhancedEndMs !== undefined && endMs < minEnhancedEndMs && overlapPolicy !== 'truncate') {
-      endMs = minEnhancedEndMs;
+    if (finalEnhancedSegmentStartMs !== undefined && endMs < finalEnhancedSegmentStartMs && overlapPolicy !== 'truncate') {
+      endMs = finalEnhancedSegmentStartMs;
     }
 
     const occ: Occurrence = {
@@ -294,6 +379,13 @@ export function normalizeLyrics(
     }
 
     occurrences.push(occ);
+  }
+
+  if (mode === 'strict' && diagnostics.some((d) => d.severity === 'error')) {
+    return {
+      normalized: { occurrences: [] },
+      diagnostics,
+    };
   }
 
   // Overlap handling
