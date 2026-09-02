@@ -83,6 +83,8 @@ describe('serializeAss', () => {
     expect(text.indexOf('Style: Lyrics,')).toBeLessThan(text.indexOf('Style: Preview,'));
     expect(text).toContain('Dialogue: 0,0:00:00.00,0:00:01.00,Lyrics,,0,0,0,,one');
     expect(text).toContain('Dialogue: -1,0:00:00.00,0:00:01.00,Preview,,0,0,0,,two');
+    expect(text.indexOf('Dialogue: 0,0:00:00.00,0:00:01.00,Lyrics,,0,0,0,,one'))
+      .toBeLessThan(text.indexOf('Dialogue: -1,0:00:00.00,0:00:01.00,Preview,,0,0,0,,two'));
   });
 
   it('formats times as H:MM:SS.CC across boundaries', () => {
