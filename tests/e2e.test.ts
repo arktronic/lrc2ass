@@ -95,7 +95,7 @@ describe('convert end-to-end', () => {
 
   it('keeps malformed lines out of the model in tolerant mode', () => {
     const result = convert(
-      '[offset:0]\r\n[00:00.00]Good line\r\n[not a timestamp]bad line here\r\n',
+      '[offset:0]\r\n[00:00.00]Good line\r\n[00:00.0]bad line here\r\n',
       { parse: { mode: 'tolerant' } },
     );
 
