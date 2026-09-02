@@ -86,13 +86,14 @@ describe('serializeAss', () => {
   });
 
   it('formats times as H:MM:SS.CC across boundaries', () => {
-    const event = (name: string, event: AssEvent): AssEvent => ({ layer: 0, style: 'Lyrics', text: name, ...event });
+    const makeEvent = (text: string, timing: Pick<AssEvent, 'startMs' | 'endMs'>): AssEvent =>
+      ({ layer: 0, style: 'Lyrics', text, ...timing });
     const document = makeDocument({
       events: [
-        event('zero', { startMs: 0, endMs: 0 }),
-        event('subminute', { startMs: 5, endMs: 5999 }),
-        event('full', { startMs: 3_600_000, endMs: 3_600_000 }),
-        event('rounds', { startMs: 104, endMs: 104 }),
+        makeEvent('zero', { startMs: 0, endMs: 0 }),
+        makeEvent('subminute', { startMs: 5, endMs: 5999 }),
+        makeEvent('full', { startMs: 3_600_000, endMs: 3_600_000 }),
+        makeEvent('rounds', { startMs: 104, endMs: 104 }),
       ],
     });
     const text = serializeAss(document, {});
@@ -138,5 +139,15 @@ describe('serializeAss', () => {
     const text = serializeAss(makeDocument({ events: [event] }), {});
 
     expect(text).toContain('Lyrics,,0,0,0,,a\\Nd\\re{b}\\c');
+  });
+
+  it('uses exactly one blank line between sections and one trailing newline when styles and events are empty', () => {
+    const text = serializeAss(makeDocument({}), {});
+
+    expect(text).toBe(
+      '[Script Info]\r\nScriptType: v4.00+\r\nPlayResX: 384\r\nPlayResY: 288\r\n\r\n'
+      + '[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n\r\n'
+      + '[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n',
+    );
   });
 });

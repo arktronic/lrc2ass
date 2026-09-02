@@ -95,8 +95,10 @@ export function serializeAss(document: AssDocument, options: SerializeOptions): 
   const includeMetadata = options.includeMetadataComments ?? false;
 
   const scriptInfo = `[Script Info]\r\n${formatScriptInfo(document, includeMetadata)}`;
-  const styleBlock = `[V4+ Styles]\r\n${STYLE_FORMAT_LINE}\r\n${document.styles.map(formatStyle).join('\r\n')}`;
-  const eventBlock = `[Events]\r\n${EVENT_FORMAT_LINE}\r\n${document.events.map(formatEvent).join('\r\n')}`;
+  const styleLines = [STYLE_FORMAT_LINE, ...document.styles.map(formatStyle)];
+  const eventLines = [EVENT_FORMAT_LINE, ...document.events.map(formatEvent)];
+  const styleBlock = `[V4+ Styles]\r\n${styleLines.join('\r\n')}`;
+  const eventBlock = `[Events]\r\n${eventLines.join('\r\n')}`;
 
   return `${scriptInfo}\r\n\r\n${styleBlock}\r\n\r\n${eventBlock}\r\n`;
 }

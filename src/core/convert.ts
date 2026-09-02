@@ -42,6 +42,9 @@ export function convert(text: string, options: ConvertOptions = {}): ConvertResu
   const { document, diagnostics: parseDiagnostics } = parseLrc(text, parseOpt);
   const { normalized, diagnostics: normalizeDiagnostics } = normalizeLyrics(document, normalizeOpt);
   const ass = planEvents(normalized, planBaseOpt, planOverrideOpt);
+  if (document.metadata.ti) {
+    ass.scriptInfo.title = document.metadata.ti;
+  }
   const serialized = serializeAss(ass, serializeOpt);
   return { ass, text: serialized, diagnostics: [...parseDiagnostics, ...normalizeDiagnostics] };
 }

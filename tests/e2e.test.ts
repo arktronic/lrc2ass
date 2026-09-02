@@ -103,4 +103,19 @@ describe('convert end-to-end', () => {
     expect(result.text).toContain('Dialogue: 0,0:00:00.00,0:00:05.00,Lyrics,,0,0,0,,Good line');
     expect(result.text).not.toContain('bad line here');
   });
+
+  it('emits the Title line from LRC [ti:] metadata when includeMetadataComments is enabled', () => {
+    const result = convert(
+      '[ti:My Song][offset:0]\r\n[00:00.00]Hello\r\n',
+      { serialize: { includeMetadataComments: true } },
+    );
+
+    expect(result.text).toContain('Title: My Song');
+  });
+
+  it('omits the Title line by default even when [ti:] metadata is present', () => {
+    const result = convert('[ti:My Song][offset:0]\r\n[00:00.00]Hello\r\n', {});
+
+    expect(result.text).not.toContain('Title:');
+  });
 });

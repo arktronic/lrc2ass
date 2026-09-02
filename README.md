@@ -9,6 +9,7 @@ A TypeScript library and Node.js CLI for converting LRC lyrics into readable, li
 - Simple and enhanced word-timed LRC.
 - Multiple timestamps per lyric line.
 - Normalized line timing, overlap policies, and final-duration inference.
+- ASS event planning with karaoke highlighting, configurable role styles and layout, instrumental gaps, and single-line/multi-line presets.
 - ASS serialization of planned events.
 - One-step conversion API.
 - Strict and tolerant parsing with structured diagnostics.
