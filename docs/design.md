@@ -81,4 +81,4 @@ For `convert()`, normalization inherits `parse.mode` unless `normalize.mode` exp
 
 ## Verification
 
-Tests should cover parsing and recovery, timing inference, event planning, deterministic serialization, staged/one-step equivalence, ESM loading, browser use, and selected libass rendering fixtures.
+Tests should cover parsing and recovery, timing inference, event planning, deterministic serialization, staged/one-step equivalence, ESM loading, and browser use. Visual rendering verification against libass/ffmpeg is out of scope: output correctness is established through deterministic, structural assertions on serialized ASS text instead.

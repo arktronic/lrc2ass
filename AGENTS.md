@@ -8,12 +8,14 @@
 - When project status changes meaningfully (e.g., implementation starts, features added, etc.) make sure to update all relevant docs and comments.
 - Match documentation depth to location: concise in README, more detailed in design docs or internal notes.
 - Never write temporal comments (i.e., do not mention previous states that have since been modified) as they are unhelpful and confusing, except in change logs when appropriate.
+- Always prefer harness-provided tools over CLI calls.
 
 # Codebase-specific guidelines
 
 - When combining defaults, presets, and caller options, preserve raw caller overrides until preset resolution so explicit caller values always win.
 - When inheriting options across stages, treat undefined override values as unset so they do not wipe inherited defaults.
 - For options-merge audits, always check both risks: (1) caller-intent loss from premature merging and (2) undefined overwriting inherited/default values.
+- Do not use npx; always prefer existing npm scripts.
 
 # CRITICAL — NON-NEGOTIABLE RULE — DO NOT SKIP OR SUMMARIZE
 
