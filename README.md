@@ -15,12 +15,16 @@ A TypeScript library and Node.js CLI for converting LRC lyrics into readable, li
 - Strict and tolerant parsing with structured diagnostics.
 - Editable LRC and ASS document models.
 - Staged parsing, normalization, event-planning, and serialization APIs.
-
-## Pending
-
-- CLI support.
+- Basic CLI: file-to-file conversion, diagnostics on stderr, exit codes.
 
 The dependency-free vanilla JS core is intended for all modern JavaScript runtimes. Planned output is deterministic and targets libass.
+
+## CLI Usage
+
+```sh
+lrc2ass input.lrc output.ass
+lrc2ass song.lrc # writes song.ass
+```
 
 ## Status
 
