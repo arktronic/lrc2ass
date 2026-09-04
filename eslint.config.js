@@ -17,7 +17,7 @@ export default tseslint.config(
   {
     // Keep the library core free of Node.js APIs; only the CLI may use them.
     files: ['src/**/*.ts'],
-    ignores: ['src/cli.ts'],
+    ignores: ['src/cli.ts', 'src/bin.ts'],
     rules: {
       'no-restricted-globals': ['error', 'process', 'Buffer', '__dirname', '__filename', 'require', 'global'],
       'no-restricted-imports': ['error', { patterns: ['node:*'] }],

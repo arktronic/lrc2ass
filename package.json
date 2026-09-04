@@ -7,7 +7,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "lrc2ass": "./dist/cli.js"
+    "lrc2ass": "./dist/bin.js"
   },
   "exports": {
     ".": {
@@ -20,6 +20,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "pretest": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",

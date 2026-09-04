@@ -1,7 +1,5 @@
-#!/usr/bin/env node
 import { readFile, writeFile } from 'node:fs/promises';
 import { parse, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { convert } from './core/convert.js';
 
 export interface CliIO {
@@ -83,11 +81,4 @@ export async function runCli(
   }
 
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error') ? 1 : 0;
-}
-
-const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
-  runCli(process.argv.slice(2)).then((code) => {
-    process.exitCode = code;
-  });
 }
