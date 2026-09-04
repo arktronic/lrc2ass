@@ -12,9 +12,18 @@ describe('convert end-to-end', () => {
     expect(result.text).toContain('[Events]\r\n');
     expect(result.text).toContain('Dialogue: 0,0:00:00.00,0:00:02.00,Lyrics,,0,0,0,,Hello world');
     expect(result.text).toContain('Dialogue: 0,0:00:02.00,0:00:07.00,Lyrics,,0,0,0,,Second line');
-    // Default single-line preset emits no Preview Dialogue event.
-    expect(result.text).not.toMatch(/Dialogue:.*Preview,/);
+    // Default multi-line preset emits a Preview Dialogue event for the upcoming line.
+    expect(result.text).toContain('Dialogue: -1,0:00:00.00,0:00:02.00,Preview,,0,0,0,,Second line');
     expect(result.text.endsWith('\r\n')).toBe(true);
+  });
+
+  it('emits no Preview Dialogue event for the single-line preset', () => {
+    const result = convert(
+      '[ti:Song][ar:Artist][offset:0]\r\n[00:00.00]Hello world\r\n[00:02.00]Second line\r\n',
+      { plan: { preset: 'single-line' } },
+    );
+
+    expect(result.text).not.toMatch(/Dialogue:.*Preview,/);
   });
 
   it('encodes enhanced word timing as kf karaoke tags for a sweep effect', () => {
@@ -60,7 +69,7 @@ describe('convert end-to-end', () => {
     );
 
     expect(result.text).toContain('Dialogue: 0,0:00:01.00,0:01:00.00,Interlude,,0,0,0,,♪ Instrumental ♪');
-    expect(result.text).toContain('Dialogue: 0,0:01:00.00,0:01:01.00,Lyrics,,0,0,0,,Second');
+    expect(result.text).toContain('Dialogue: 0,0:01:00.00,0:01:05.00,Lyrics,,0,0,0,,Second');
   });
 
   it('emits countdown Interlude events labelled with whole seconds remaining', () => {

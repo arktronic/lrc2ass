@@ -151,6 +151,8 @@ function resolvePlanOptions(baseOptions: PlanOptions, overrides: PlanOverrideOpt
   return {
     ...baseOptions,
     karaokeEffect: overrides?.karaokeEffect ?? baseOptions.karaokeEffect,
+    mainLinePreRollMs: overrides?.mainLinePreRollMs ?? baseOptions.mainLinePreRollMs,
+    previewLeadMs: overrides?.previewLeadMs ?? baseOptions.previewLeadMs,
     interlude,
     preset,
     layout: {
@@ -202,6 +204,8 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   if (!['none', 'instant', 'sweep', 'sweep-outline'].includes(options.karaokeEffect)) {
     throw new RangeError(`karaokeEffect is invalid: ${String(options.karaokeEffect)}`);
   }
+  assertNonNegativeSafeInteger(options.mainLinePreRollMs, 'mainLinePreRollMs');
+  assertNonNegativeSafeInteger(options.previewLeadMs, 'previewLeadMs');
   if (!Number.isSafeInteger(options.layout.resolutionX) || options.layout.resolutionX <= 0) {
     throw new RangeError(`layout.resolutionX must be a positive safe integer, received ${options.layout.resolutionX}`);
   }
@@ -295,31 +299,56 @@ function karaokeText(
   const leadingDurationCentiseconds = (firstSegmentStartMs - eventStartMs) / CENTISECOND_MS;
   const leadingTag = leadingDurationCentiseconds > 0 ? `{\\${tag}${leadingDurationCentiseconds}}` : '';
 
-  return leadingTag + segments.map((segment, index) => {
+  const karaokeSegments = leadingTag + segments.map((segment, index) => {
     const segmentStart = Math.min(eventEndMs, Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segment.timeMs)));
     const nextSegment = segments[index + 1];
     const segmentEnd = nextSegment
       ? Math.min(eventEndMs, Math.max(segmentStart, quantizeBoundary(sourceStartMs + nextSegment.timeMs)))
       : eventEndMs;
     const durationCentiseconds = (segmentEnd - segmentStart) / CENTISECOND_MS;
-    return `{\\${tag}${durationCentiseconds}}${escapeAssText(segment.text)}`;
+    // Some enhanced-LRC generators pad tags with a space on both sides; since a {\k} tag renders invisibly,
+    // a trailing space on one segment plus a leading space on the next would visually double up. Keep only
+    // the next segment's leading space as the word separator, and drop the very first segment's leading space.
+    let segmentText = segment.text.trimEnd();
+    if (index === 0) {
+      segmentText = segmentText.trimStart();
+    }
+    return `{\\${tag}${durationCentiseconds}}${escapeAssText(segmentText)}`;
   }).join('');
+  // Tags contain no spaces, so collapsing runs of 2+ spaces in the assembled string is safe.
+  return collapseSpaces(karaokeSegments);
+}
+
+function collapseSpaces(text: string): string {
+  return text.replace(/ {2,}/g, ' ');
 }
 
 function lyricEndMs(
   occurrence: NormalizedLyrics['occurrences'][number],
+  nextOccurrenceStartMs: number | undefined,
   options: ResolvedPlanOptions,
 ): number {
   const trailingDurationMs = options.interlude?.strategy === 'none'
     ? undefined
     : options.interlude?.trailingLyricDurationMs;
-  if (trailingDurationMs === undefined) {
+  // Nothing follows to occupy the gap (end of file, or gap too small for an interlude), so don't create unlabeled dead air.
+  if (trailingDurationMs === undefined || nextOccurrenceStartMs === undefined) {
     return occurrence.endMs;
   }
 
   const finalSegment = occurrence.segments?.at(-1);
   const anchorMs = finalSegment ? occurrence.startMs + finalSegment.timeMs : occurrence.startMs;
-  return Math.min(occurrence.endMs, anchorMs + trailingDurationMs);
+  const clampedEndMs = Math.min(occurrence.endMs, anchorMs + trailingDurationMs);
+  if (nextOccurrenceStartMs - clampedEndMs < options.interlude!.minGapMs) {
+    return occurrence.endMs;
+  }
+  return clampedEndMs;
+}
+
+/** The moment a lyric's first sung word actually occurs, per its enhanced segment timing (or its own timestamp if plain). */
+function effectiveSungStartMs(occurrence: NormalizedLyrics['occurrences'][number]): number {
+  const firstSegment = occurrence.segments?.[0];
+  return firstSegment ? occurrence.startMs + firstSegment.timeMs : occurrence.startMs;
 }
 
 function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options: ResolvedPlanOptions): void {
@@ -329,12 +358,12 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
   }
 
   const marginMs = interlude.marginMs ?? DEFAULT_INTERLUDE_MARGIN_MS;
-  let latestActiveEndMs = lyricEvents[0]?.endMs;
-  for (let index = 0; index < lyricEvents.length - 1; index++) {
-    const next = lyricEvents[index + 1];
-    if (latestActiveEndMs !== undefined && next.startMs - latestActiveEndMs >= interlude.minGapMs) {
+  // Starts at 0 so a leading gap before the very first lyric (e.g. an instrumental intro) is detected too.
+  let latestActiveEndMs = 0;
+  for (const event of lyricEvents) {
+    if (event.startMs - latestActiveEndMs >= interlude.minGapMs) {
       const startMs = quantizeBoundary(latestActiveEndMs + marginMs);
-      const endMs = quantizeBoundary(next.startMs - marginMs);
+      const endMs = quantizeBoundary(event.startMs - marginMs);
 
       if (endMs > startMs) {
         const style = interlude.style ?? INTERLUDE_STYLE_NAME;
@@ -356,7 +385,7 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
       }
     }
 
-    latestActiveEndMs = Math.max(latestActiveEndMs ?? 0, next.endMs);
+    latestActiveEndMs = Math.max(latestActiveEndMs, event.endMs);
   }
 }
 
@@ -374,9 +403,16 @@ export function planEvents(
   const lyricOccurrences: Array<{ event: AssEvent; occurrence: NormalizedLyrics['occurrences'][number] }> = [];
   const interludeStyleName = options.interlude?.style ?? INTERLUDE_STYLE_NAME;
 
-  for (const occurrence of normalized.occurrences) {
-    const startMs = quantizeBoundary(occurrence.startMs);
-    const endMs = quantizeBoundary(lyricEndMs(occurrence, options));
+  // A lyric's box may start later than its own bracket timestamp when it has a large leading
+  // enhanced-segment delay, deferred to just before its first sung word (never earlier than the bracket).
+  const deferredStarts = normalized.occurrences.map((occurrence) =>
+    quantizeBoundary(Math.max(occurrence.startMs, effectiveSungStartMs(occurrence) - options.mainLinePreRollMs)),
+  );
+
+  for (const [index, occurrence] of normalized.occurrences.entries()) {
+    const startMs = deferredStarts[index];
+    const nextStartMs = deferredStarts[index + 1];
+    const endMs = quantizeBoundary(lyricEndMs(occurrence, nextStartMs, options));
     if (endMs <= startMs) {
       continue;
     }
@@ -403,11 +439,16 @@ export function planEvents(
     for (let index = 0; index < lyricOccurrences.length - 1; index++) {
       const current = lyricOccurrences[index].event;
       const next = lyricOccurrences[index + 1];
-      if (next.event.startMs > current.startMs) {
+      const previewStartMs = Math.max(
+        current.startMs,
+        quantizeBoundary(effectiveSungStartMs(next.occurrence) - options.previewLeadMs),
+      );
+      const previewEndMs = next.event.startMs;
+      if (previewEndMs > previewStartMs) {
         events.push({
           layer: -1,
-          startMs: current.startMs,
-          endMs: next.event.startMs,
+          startMs: previewStartMs,
+          endMs: previewEndMs,
           style: PREVIEW_STYLE_NAME,
           text: escapeAssText(next.occurrence.text),
         });

@@ -4,6 +4,8 @@ import type { NormalizedLyrics, PlanOptions } from '../src/index.js';
 
 const options: PlanOptions = {
   karaokeEffect: 'none',
+  mainLinePreRollMs: 1000,
+  previewLeadMs: 4000,
   layout: {
     resolutionX: 384,
     resolutionY: 288,
@@ -112,6 +114,24 @@ describe('planEvents', () => {
     expect(event).toMatchObject({ startMs: 20, endMs: 70, text: `{\\${tag}2}one{\\${tag}3}two` });
   });
 
+  it('trims padding whitespace from the outer edges of karaoke segments without collapsing interior spacing', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{
+        startMs: 0,
+        endMs: 100,
+        text: ' Foo  bar ',
+        segments: [
+          { text: ' Foo ', timeMs: 0, location: { line: 1, column: 1 } },
+          { text: ' bar ', timeMs: 50, location: { line: 1, column: 7 } },
+        ],
+      }],
+    };
+
+    const [event] = planEvents(normalized, { ...options, karaokeEffect: 'sweep' }).events;
+
+    expect(event.text).toBe('{\\kf5}Foo{\\kf5} bar');
+  });
+
   it('encodes a leading enhanced-timestamp delay as an empty karaoke syllable', () => {
     const [event] = planEvents({
       occurrences: [{
@@ -123,6 +143,34 @@ describe('planEvents', () => {
     }, { ...options, karaokeEffect: 'sweep' }).events;
 
     expect(event.text).toBe('{\\kf50}{\\kf150}Hello');
+  });
+
+  it('defers a lyric event start when its leading enhanced-segment delay exceeds mainLinePreRollMs', () => {
+    const [event] = planEvents({
+      occurrences: [{
+        startMs: 0,
+        endMs: 20_000,
+        text: 'La la la',
+        segments: [{ text: 'La la la', timeMs: 15_000, location: { line: 1, column: 1 } }],
+      }],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    // 15_000ms delay minus the 1_000ms default pre-roll = starts at 14_000ms instead of 0.
+    expect(event.startMs).toBe(14_000);
+    expect(event.text).toBe('{\\kf100}{\\kf500}La la la');
+  });
+
+  it('does not defer a lyric event start when there is no leading delay', () => {
+    const [event] = planEvents({
+      occurrences: [{
+        startMs: 5_000,
+        endMs: 8_000,
+        text: 'Hello',
+        segments: [{ text: 'Hello', timeMs: 0, location: { line: 1, column: 1 } }],
+      }],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    expect(event.startMs).toBe(5_000);
   });
 
   it('adds a next-line preview for the multi-line preset', () => {
@@ -141,6 +189,32 @@ describe('planEvents', () => {
       endMs: 2_000,
       style: 'Preview',
       text: 'Next',
+    });
+  });
+
+  it('bounds a next-line preview to previewLeadMs before a delayed next lyric, instead of spanning the whole prior gap', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'Current' },
+        {
+          startMs: 20_000,
+          endMs: 40_000,
+          text: 'La la la',
+          segments: [{ text: 'La la la', timeMs: 15_000, location: { line: 1, column: 1 } }],
+        },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', karaokeEffect: 'sweep' });
+
+    // Next lyric's effective sung-start is 35_000ms (20_000 + 15_000); preview shows for the
+    // 4_000ms previewLeadMs before that, ending when the (pre-rolled) next lyric box begins.
+    expect(document.events).toContainEqual({
+      layer: -1,
+      startMs: 31_000,
+      endMs: 34_000,
+      style: 'Preview',
+      text: 'La la la',
     });
   });
 
@@ -222,6 +296,21 @@ describe('planEvents', () => {
     ]);
   });
 
+  it('adds an interlude for a leading gap before the very first lyric', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{ startMs: 10_000, endMs: 11_000, text: 'First' }],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 3_000, marginMs: 100, strategy: 'text' },
+    });
+
+    expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([
+      { layer: 0, startMs: 100, endMs: 9_900, style: 'Interlude', text: '♪ Instrumental ♪' },
+    ]);
+  });
+
   it('waits for every overlapping lyric to end before adding an interlude', () => {
     const normalized: NormalizedLyrics = {
       occurrences: [
@@ -275,6 +364,65 @@ describe('planEvents', () => {
       endMs: 10_000,
       style: 'Interlude',
       text: '♪ Instrumental ♪',
+    });
+  });
+
+  it('does not truncate the final lyric with trailingLyricDurationMs when no lyric follows', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 20_000,
+          text: 'Last line',
+          segments: [
+            { text: 'Last ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'line', timeMs: 5_000, location: { line: 1, column: 6 } },
+          ],
+        },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 3_000, strategy: 'text', trailingLyricDurationMs: 1_500 },
+    });
+
+    expect(document.events).toContainEqual({
+      layer: 0,
+      startMs: 0,
+      endMs: 20_000,
+      style: 'Lyrics',
+      text: 'Last line',
+    });
+  });
+
+  it('does not truncate a lyric with trailingLyricDurationMs when the following gap is below minGapMs', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 10_000,
+          text: 'First line',
+          segments: [
+            { text: 'First ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'line', timeMs: 5_000, location: { line: 1, column: 7 } },
+          ],
+        },
+        { startMs: 10_000, endMs: 12_000, text: 'Second line' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 10_000, strategy: 'text', trailingLyricDurationMs: 1_500 },
+    });
+
+    expect(document.events).toContainEqual({
+      layer: 0,
+      startMs: 0,
+      endMs: 10_000,
+      style: 'Lyrics',
+      text: 'First line',
     });
   });
 });

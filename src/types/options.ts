@@ -75,6 +75,10 @@ export interface PlanOptions {
   interlude?: InterludeOptions;
   preset?: PlanPreset;
   styles?: PlanStylesOptions;
+  /** How long before a lyric's first sung word its Lyrics event may appear (never earlier than its own timestamp). */
+  mainLinePreRollMs: number;
+  /** Max lead time before the next lyric's first sung word that a Preview event may appear. */
+  previewLeadMs: number;
 }
 
 export interface PlanOverrideOptions {
@@ -83,6 +87,8 @@ export interface PlanOverrideOptions {
   interlude?: InterludeOptions;
   preset?: PlanPreset;
   styles?: PlanStylesOptions;
+  mainLinePreRollMs?: number;
+  previewLeadMs?: number;
 }
 
 export interface SerializeOptions {

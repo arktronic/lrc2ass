@@ -376,7 +376,12 @@ function parseEnhancedSegments(
     });
   }
 
-  return { ok: true, text: segments.map((segment) => segment.text).join(''), segments };
+  return { ok: true, text: collapseSpaces(segments.map((segment) => segment.text).join('')).trim(), segments };
+}
+
+// Some enhanced-LRC generators pad tags with a space on both sides, doubling whitespace once segments are joined.
+function collapseSpaces(text: string): string {
+  return text.replace(/ {2,}/g, ' ');
 }
 
 /** Parses LRC source text into an editable {@link LrcDocument} plus diagnostics. */

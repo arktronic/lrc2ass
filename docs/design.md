@@ -47,7 +47,8 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Negative or decreasing effective times fail in strict mode; tolerant mode clamps them and emits diagnostics.
 - Completely untimed lines remain in the model but cannot produce events without caller-supplied timing.
 - Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset. The converter does not invent word timing or perform linguistic tokenization.
-- Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing.
+- A lyric's effective sung-start is its first enhanced segment's absolute time (or its own timestamp if plain/segment-less).
+- Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing. A gap before the very first lyric (e.g. an instrumental intro) is detected the same way as any inter-lyric gap.
 - Escape lyric text so embedded ASS override syntax cannot execute.
 - The parser accepts documented timestamp forms with flexible hour/minute widths, validates component ranges and safe integer precision, and rejects values outside that range.
 - Public LRC and ASS models are directly editable. Callers who edit them are responsible for preserving their invariants.
@@ -62,7 +63,8 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 ### Event Planner Defaults
 
 - The planner emits deterministic `Lyrics`, `Preview`, and `Interlude` styles. `PlanStyleOptions` configures font, colors, alignment, and margins for each role; colors use `#RRGGBB` values. A named interlude style is emitted when selected.
-- `single-line` is the default preset and renders active lyrics only. `multi-line` also displays one next strictly later lyric as a non-karaoke `Preview` event from the active group start until that lyric starts. Simultaneous lyrics are active together and do not create duplicate previews.
+- `multi-line` is the default preset and also displays one next strictly later lyric as a non-karaoke `Preview` event, bounded to `previewLeadMs` before that lyric's effective sung-start (clamped to the active group's own start) through its (possibly pre-rolled) event start. `single-line` renders active lyrics only. Simultaneous lyrics are active together and do not create duplicate previews.
+- Because a `Preview` event's window is now anchored to the upcoming lyric's effective sung-start rather than spanning an entire gap, it may briefly overlap an `Interlude` event during a long instrumental break; this is expected and relies on their differing default alignments (top-center vs. bottom-center) to avoid visual collision.
 - A `text` interlude displays `♪ Instrumental ♪`; a `countdown` interlude emits one-second events labelled with whole seconds remaining.
 - Planner options are validated at runtime and invalid values throw `RangeError`.
 
