@@ -6,6 +6,10 @@ const options: PlanOptions = {
   karaokeEffect: 'none',
   mainLinePreRollMs: 1000,
   previewLeadMs: 4000,
+  fadeInMs: 0,
+  fadeOutMs: 0,
+  maxPreviewLines: 1,
+  lingerMaxMs: 0,
   layout: {
     resolutionX: 384,
     resolutionY: 288,
@@ -13,6 +17,7 @@ const options: PlanOptions = {
     marginLeft: 10,
     marginRight: 10,
     marginVertical: 10,
+    rowGapPx: 8,
   },
 };
 
@@ -188,7 +193,8 @@ describe('planEvents', () => {
       startMs: 0,
       endMs: 2_000,
       style: 'Preview',
-      text: 'Next',
+      marginVertical: 148,
+      text: '{\\an8}Next',
     });
   });
 
@@ -208,13 +214,16 @@ describe('planEvents', () => {
     const document = planEvents(normalized, { ...options, preset: 'multi-line', karaokeEffect: 'sweep' });
 
     // Next lyric's effective sung-start is 35_000ms (20_000 + 15_000); preview shows for the
-    // 4_000ms previewLeadMs before that, ending when the (pre-rolled) next lyric box begins.
+    // 4_000ms previewLeadMs before that, ending when the (pre-rolled) next lyric box begins. The
+    // ~30s gap before that is a genuine full blank, so "La la la" resets to the top row (row 0)
+    // instead of continuing the raw rotation to row 1.
     expect(document.events).toContainEqual({
       layer: -1,
       startMs: 31_000,
       endMs: 34_000,
       style: 'Preview',
-      text: 'La la la',
+      marginVertical: 118,
+      text: '{\\an8}La la la',
     });
   });
 
@@ -229,10 +238,416 @@ describe('planEvents', () => {
 
     const document = planEvents(normalized, { ...options, preset: 'multi-line' });
 
+    // "Next line" reuses "Singer one"'s row (occurrence index 2 mod rowCount 2 = 0), so its preview
+    // can't start until that row frees up at 1_000, even though "Singer two" started earlier at 0.
     expect(document.events.filter((event) => event.style === 'Preview')).toEqual([
-      { layer: -1, startMs: 0, endMs: 2_000, style: 'Preview', text: 'Next line' },
+      { layer: -1, startMs: 1_000, endMs: 2_000, style: 'Preview', marginVertical: 118, text: '{\\an8}Next line' },
     ]);
-    expect(document.events.slice(0, 3).map((event) => event.style)).toEqual(['Preview', 'Lyrics', 'Lyrics']);
+    expect(document.events.slice(0, 3).map((event) => event.style)).toEqual(['Lyrics', 'Lyrics', 'Preview']);
+    // Simultaneous occurrences alternate rows via marginVertical; alignment tag stays the same.
+    const [singerOne, singerTwo] = document.events.filter((event) => event.style === 'Lyrics');
+    expect(singerOne.text).toBe('{\\an8}Singer one');
+    expect(singerTwo.text).toBe('{\\an8}Singer two');
+    expect(singerOne.marginVertical).not.toBe(singerTwo.marginVertical);
+  });
+
+  it('alternates row marginVertical across consecutive lyric lines for the multi-line preset', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 2_000, endMs: 3_000, text: 'Second' },
+        { startMs: 4_000, endMs: 5_000, text: 'Third' },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line' });
+
+    const lyricEvents = document.events.filter((event) => event.style === 'Lyrics');
+    // Every row shares the same alignment tag; only the per-event MarginV distinguishes rows.
+    expect(lyricEvents.map((event) => event.text)).toEqual(['{\\an8}First', '{\\an8}Second', '{\\an8}Third']);
+    expect(lyricEvents.map((event) => event.marginVertical)).toEqual([118, 148, 118]);
+  });
+
+  it('starts the first lyric on the top row even after a leading interlude gap', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 20_000, endMs: 21_000, text: 'First' },
+        { startMs: 22_000, endMs: 23_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      interlude: { minGapMs: 1_000, strategy: 'text' },
+    });
+
+    expect(document.events.some((event) => event.style === 'Interlude')).toBe(true);
+    const [firstLyric] = document.events.filter((event) => event.style === 'Lyrics');
+    expect(firstLyric.text.startsWith('{\\an8}')).toBe(true);
+  });
+
+  it('does not preview a line before the first lyric of the song has actually started', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 20_000, endMs: 21_000, text: 'First' },
+        { startMs: 22_000, endMs: 23_000, text: 'Second' },
+      ],
+    };
+
+    // previewLeadMs (4_000) before "Second"'s sung-start (22_000) is 18_000, which is before
+    // "First" even starts (20_000) — nothing should be on screen before that.
+    const document = planEvents(normalized, { ...options, preset: 'multi-line' });
+
+    const preview = document.events.find((event) => event.style === 'Preview');
+    expect(preview?.startMs).toBe(20_000);
+  });
+
+  it('shows a preview already in the row the line keeps once promoted to current', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 2_000, endMs: 3_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line' });
+
+    const preview = document.events.find((event) => event.style === 'Preview');
+    const secondLyric = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
+    expect(preview?.text.slice(0, preview.text.indexOf('}') + 1)).toBe(secondLyric?.text.slice(0, secondLyric.text.indexOf('}') + 1));
+  });
+
+  it('emits no row alignment tag for the single-line preset', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{ startMs: 0, endMs: 1_000, text: 'Solo' }],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'single-line' });
+
+    expect(document.events).toEqual([
+      { layer: 0, startMs: 0, endMs: 1_000, style: 'Lyrics', text: 'Solo' },
+    ]);
+  });
+
+  it('derives the multi-line rows\' per-event marginVertical from layout.resolutionY and layout.rowGapPx', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      layout: { ...options.layout, resolutionY: 288, rowGapPx: 8 },
+    });
+
+    // topMargin = (288 - 2*22 - 1*8)/2 = 118; rows alternate 118/148.
+    const lyricEvents = document.events.filter((event) => event.style === 'Lyrics');
+    expect(lyricEvents.map((event) => event.marginVertical)).toEqual([118, 148]);
+  });
+
+  it('computes per-row event margins regardless of an explicit style-level marginVertical override', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      styles: { lyrics: { marginVertical: 42 } },
+    });
+
+    // The style's own MarginV reflects the override (relevant for the single-line preset), but each
+    // multi-line row still gets its own computed per-event MarginV, which always takes precedence.
+    const lyrics = document.styles.find((style) => style.name === 'Lyrics');
+    expect(lyrics?.marginVertical).toBe(42);
+    const lyricEvents = document.events.filter((event) => event.style === 'Lyrics');
+    expect(lyricEvents.map((event) => event.marginVertical)).toEqual([118, 148]);
+  });
+
+  it('gives every occurrence its own permanent row and per-event MarginV when maxPreviewLines > 1', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+        { startMs: 2_000, endMs: 3_000, text: 'Third' },
+        { startMs: 3_000, endMs: 4_000, text: 'Fourth' },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 3 });
+
+    // 4 rows share resolutionY 288 at rowGapPx 8: topMargin = (288 - 4*22 - 3*8)/2 = 88.
+    const lyricEvents = document.events.filter((event) => event.style === 'Lyrics');
+    expect(lyricEvents.map((event) => ({ text: event.text, marginVertical: event.marginVertical }))).toEqual([
+      { text: '{\\an8}First', marginVertical: 88 },
+      { text: '{\\an8}Second', marginVertical: 118 },
+      { text: '{\\an8}Third', marginVertical: 148 },
+      { text: '{\\an8}Fourth', marginVertical: 178 },
+    ]);
+  });
+
+  it('shows more than one simultaneous preview line when maxPreviewLines > 1 and lines arrive close together', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+        { startMs: 2_000, endMs: 3_000, text: 'Third' },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 2 });
+
+    // Both "Second" and "Third" fall within previewLeadMs (4000ms) of the song's start, and neither
+    // needs to wait for a same-row predecessor (rowCount 3 > either occurrence's own index), so both
+    // preview from t=0, genuinely overlapping in time on their own permanently-assigned rows.
+    const previewEvents = document.events.filter((event) => event.style === 'Preview');
+    expect(previewEvents).toEqual([
+      { layer: -1, startMs: 0, endMs: 1_000, style: 'Preview', marginVertical: 133, text: '{\\an8}Second' },
+      { layer: -1, startMs: 0, endMs: 2_000, style: 'Preview', marginVertical: 163, text: '{\\an8}Third' },
+    ]);
+  });
+
+  it('previews more than one line ahead, not just the immediately next line, when they all fall within previewLeadMs', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+        { startMs: 2_000, endMs: 3_000, text: 'Third' },
+        { startMs: 3_000, endMs: 4_000, text: 'Fourth' },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 3 });
+
+    // With 4 permanently-assigned rows and no same-row predecessor yet, Second/Third/Fourth all
+    // preview from t=0 (bounded only by previewLeadMs, here effectively unconstrained since they're
+    // all within 4_000ms of the song's start) — three simultaneous previews, not just one.
+    const previewTexts = document.events
+      .filter((event) => event.style === 'Preview' && event.startMs === 0)
+      .map((event) => event.text);
+    expect(previewTexts).toEqual(['{\\an8}Second', '{\\an8}Third', '{\\an8}Fourth']);
+  });
+
+  it('delays a preview until its row frees up from its same-row predecessor', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+        { startMs: 2_000, endMs: 3_000, text: 'Third' },
+      ],
+    };
+
+    // rowCount 2: "Third" (index 2) shares "First"'s row (index 0), so its preview can't start
+    // before "First"'s own Lyrics event ends at 1_000, even though previewLeadMs would allow t=0.
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 });
+
+    const thirdPreview = document.events.find((event) => event.style === 'Preview' && event.text.endsWith('Third'));
+    expect(thirdPreview?.startMs).toBe(1_000);
+  });
+
+  it('resets the row rotation to the top row after a genuine full-blank gap', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 10_000, endMs: 11_000, text: 'Second' },
+        { startMs: 11_000, endMs: 12_000, text: 'Third' },
+      ],
+    };
+
+    // "First" ends at 1_000 and nothing shows again until 9_500 (Second's natural appearance,
+    // 10_000 - 500ms previewLeadMs) — a genuine ~8.5s blank with every row empty.
+    const document = planEvents(
+      normalized,
+      { ...options, preset: 'multi-line', maxPreviewLines: 1, previewLeadMs: 500 },
+    );
+
+    const first = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('First'));
+    const secondPreview = document.events.find((event) => event.style === 'Preview' && event.text.endsWith('Second'));
+    const second = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
+    const third = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Third'));
+
+    // "Second" (and its preview) reset to the top row instead of continuing to row 1...
+    expect(secondPreview?.marginVertical).toBe(first?.marginVertical);
+    expect(second?.marginVertical).toBe(first?.marginVertical);
+    // ...and rotation continues normally from the reset point, so "Third" takes row 1.
+    expect(third?.marginVertical).not.toBe(second?.marginVertical);
+  });
+
+  it('resets the row rotation even when the gap is too short to qualify for an interlude', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 10_000, endMs: 11_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 1,
+      previewLeadMs: 500,
+      interlude: { minGapMs: 20_000, strategy: 'text' },
+    });
+
+    const first = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('First'));
+    const second = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
+    expect(second?.marginVertical).toBe(first?.marginVertical);
+  });
+
+  it('does not reset the row rotation when lingerMaxMs fully bridges a same-row gap', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+        { startMs: 2_000, endMs: 3_000, text: 'Third' },
+        { startMs: 3_000, endMs: 4_000, text: 'Fourth' },
+        { startMs: 6_000, endMs: 7_000, text: 'Fifth' },
+      ],
+    };
+
+    // rowCount 3: "Fifth" (index 4) would reuse "Second"'s row (index 1). Its natural appearance
+    // (5_500 = 6_000 - 500ms previewLeadMs) is 3_500ms after "Second"'s endMs, which fits
+    // entirely within lingerMaxMs, so that row is never truly blank.
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 2,
+      previewLeadMs: 500,
+      lingerMaxMs: 4_000,
+    });
+
+    const second = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
+    const fifth = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Fifth'));
+    expect(fifth?.marginVertical).toBe(second?.marginVertical);
+  });
+
+  it('still resets the row rotation when lingerMaxMs only partially bridges a same-row gap', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+        { startMs: 2_000, endMs: 3_000, text: 'Third' },
+        { startMs: 3_000, endMs: 4_000, text: 'Fourth' },
+        { startMs: 6_000, endMs: 7_000, text: 'Fifth' },
+      ],
+    };
+
+    // Same setup, but lingerMaxMs only covers 1_000ms of "Second"'s 3_500ms gap, leaving a
+    // genuine blank before "Fifth" appears, so it resets to the top row instead.
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 2,
+      previewLeadMs: 500,
+      lingerMaxMs: 1_000,
+    });
+
+    const first = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('First'));
+    const fifth = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Fifth'));
+    expect(fifth?.marginVertical).toBe(first?.marginVertical);
+  });
+
+  it('rejects a maxPreviewLines outside 1-8', () => {
+    expect(() => planEvents({ occurrences: [] }, { ...options, maxPreviewLines: 0 })).toThrow(RangeError);
+    expect(() => planEvents({ occurrences: [] }, { ...options, maxPreviewLines: 9 })).toThrow(RangeError);
+  });
+
+  describe('lingerMaxMs', () => {
+    // rowCount 2 ("First"/index0 and "Third"/index2 share a row); previewLeadMs is short enough
+    // to leave a real gap between "First"'s own endMs and "Third"'s preview, but generous enough
+    // that neither gap here is a genuine full-blank row-reset trigger (see the dedicated
+    // "resets the row rotation..." tests below for that).
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 3_000, endMs: 4_000, text: 'Second' },
+        { startMs: 6_000, endMs: 7_000, text: 'Third' },
+      ],
+    };
+    const lingerOptions = { ...options, preset: 'multi-line' as const, maxPreviewLines: 1, previewLeadMs: 2_000 };
+
+    it('lets a line linger all the way to its row\'s next preview when the gap fits within lingerMaxMs', () => {
+      const document = planEvents(normalized, { ...lingerOptions, lingerMaxMs: 10_000 });
+
+      const first = document.events.find((event) => event.text.endsWith('First'));
+      expect(first?.endMs).toBe(4_000);
+    });
+
+    it('caps lingering at lingerMaxMs and leaves the remainder of the gap blank', () => {
+      const document = planEvents(normalized, { ...lingerOptions, lingerMaxMs: 1_500 });
+
+      const first = document.events.find((event) => event.text.endsWith('First'));
+      expect(first?.endMs).toBe(2_500);
+    });
+
+    it('does not linger across a gap long enough to warrant an interlude', () => {
+      const document = planEvents(normalized, {
+        ...lingerOptions,
+        lingerMaxMs: 10_000,
+        interlude: { minGapMs: 2_000, strategy: 'text' },
+      });
+
+      const first = document.events.find((event) => event.text.endsWith('First'));
+      expect(first?.endMs).toBe(1_000);
+    });
+
+    it('lingers regardless of gap size when no interlude is configured', () => {
+      const document = planEvents(normalized, { ...lingerOptions, lingerMaxMs: 10_000, interlude: undefined });
+
+      const first = document.events.find((event) => event.text.endsWith('First'));
+      expect(first?.endMs).toBe(4_000);
+    });
+
+    it('does not linger when lingerMaxMs is 0 (the default fixture value)', () => {
+      const document = planEvents(normalized, lingerOptions);
+
+      const first = document.events.find((event) => event.text.endsWith('First'));
+      expect(first?.endMs).toBe(1_000);
+    });
+  });
+
+  it('prepends a fad tag to every event when fadeInMs/fadeOutMs are set', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{ startMs: 0, endMs: 1_000, text: 'Solo' }],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'single-line', fadeInMs: 200, fadeOutMs: 300 });
+
+    expect(document.events).toEqual([
+      { layer: 0, startMs: 0, endMs: 1_000, style: 'Lyrics', text: '{\\fad(200,300)}Solo' },
+    ]);
+  });
+
+  it('scales fadeInMs/fadeOutMs down so they never exceed an event\'s own duration', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{ startMs: 0, endMs: 500, text: 'Short' }],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'single-line', fadeInMs: 400, fadeOutMs: 400 });
+
+    // fadeInMs + fadeOutMs (800) exceeds the 500ms event duration, so both are scaled by 500/800 = 0.625.
+    expect(document.events).toEqual([
+      { layer: 0, startMs: 0, endMs: 500, style: 'Lyrics', text: '{\\fad(250,250)}Short' },
+    ]);
+  });
+
+  it('emits no fad tag when fadeInMs and fadeOutMs are both 0', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{ startMs: 0, endMs: 1_000, text: 'Solo' }],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'single-line' });
+
+    expect(document.events).toEqual([
+      { layer: 0, startMs: 0, endMs: 1_000, style: 'Lyrics', text: 'Solo' },
+    ]);
   });
 
   it('omits events that collapse after centisecond quantization', () => {

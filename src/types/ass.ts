@@ -27,7 +27,10 @@ export interface AssStyle {
   /** Color of the not-yet-sung portion during a karaoke sweep. */
   secondaryColor: AssColor;
   outlineColor: AssColor;
+  /** Drop-shadow color; only visible when `shadow` is greater than 0. */
   backColor: AssColor;
+  /** Drop-shadow offset distance in pixels; 0 means no shadow is drawn regardless of backColor. */
+  shadow: number;
   alignment: AssAlignment;
   marginLeft: number;
   marginRight: number;
@@ -41,6 +44,8 @@ export interface AssEvent {
   endMs: number;
   style: string;
   text: string;
+  /** Per-event override of the style's MarginV; used to stack more than 2 multi-line preset rows. Omitted to use the style default. */
+  marginVertical?: number;
 }
 
 export interface AssDocument {

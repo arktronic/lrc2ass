@@ -19,6 +19,17 @@ const INTERLUDE_STYLE_NAME = 'Interlude';
 const DEFAULT_INTERLUDE_MARGIN_MS = 0;
 const DEFAULT_INTERLUDE_TEXT = '♪ Instrumental ♪';
 const CENTISECOND_MS = 10;
+const MULTI_LINE_LINE_HEIGHT_PX = 22; // approximate rendered line height at fontSize 28
+/** Hard cap on maxPreviewLines; keeps the multi-line preset's row stack to a sane, readable size. */
+const MAX_PREVIEW_LINES_CAP = 8;
+
+// The multi-line preset's rows share one evenly-spaced block: this is the offset from the block's
+// anchored edge to its first row. For the default 2-row case, an8 (top row) measures it from the
+// top edge and an2 (bottom row) measures it from the bottom edge, so this single value centers both
+// rows toward/away from each other at once (twice as fast as either edge alone).
+function computeRowBlockTopMargin(resolutionY: number, rowGapPx: number, rowCount: number): number {
+  return Math.round((resolutionY - rowCount * MULTI_LINE_LINE_HEIGHT_PX - (rowCount - 1) * rowGapPx) / 2);
+}
 
 interface ResolvedPlanOptions extends PlanOptions {
   layout: LayoutOptions;
@@ -46,7 +57,7 @@ const PLAN_PRESETS: Readonly<Record<PlanPreset, PlanPresetDefaults>> = Object.fr
       }),
       preview: Object.freeze({
         fontName: 'Arial',
-        fontSize: 24,
+        fontSize: 28,
         primaryColor: '#C0C0C0',
         secondaryColor: '#808080',
         outlineColor: '#000000',
@@ -73,18 +84,20 @@ const PLAN_PRESETS: Readonly<Record<PlanPreset, PlanPresetDefaults>> = Object.fr
         fontSize: 28,
         primaryColor: '#FFFFFF',
         secondaryColor: '#808080',
-        outlineColor: '#000000',
+        outlineColor: '#FF0000',
         backColor: '#000000',
-        backOpacity: 0,
+        backOpacity: 0.8,
+        shadow: 6,
       }),
       preview: Object.freeze({
         fontName: 'Arial',
-        fontSize: 24,
+        fontSize: 28,
         primaryColor: '#C0C0C0',
         secondaryColor: '#808080',
-        outlineColor: '#000000',
+        outlineColor: '#0000FF',
         backColor: '#000000',
-        backOpacity: 0,
+        backOpacity: 0.8,
+        shadow: 6,
         alignment: 8,
       }),
       interlude: Object.freeze({
@@ -94,7 +107,10 @@ const PLAN_PRESETS: Readonly<Record<PlanPreset, PlanPresetDefaults>> = Object.fr
         secondaryColor: '#808080',
         outlineColor: '#000000',
         backColor: '#000000',
-        backOpacity: 0,
+        // Row alternation means Preview can land on either row, so Interlude stays centered to avoid both.
+        alignment: 5,
+        backOpacity: 0.8,
+        shadow: 6,
       }),
     }),
   }),
@@ -153,6 +169,10 @@ function resolvePlanOptions(baseOptions: PlanOptions, overrides: PlanOverrideOpt
     karaokeEffect: overrides?.karaokeEffect ?? baseOptions.karaokeEffect,
     mainLinePreRollMs: overrides?.mainLinePreRollMs ?? baseOptions.mainLinePreRollMs,
     previewLeadMs: overrides?.previewLeadMs ?? baseOptions.previewLeadMs,
+    fadeInMs: overrides?.fadeInMs ?? baseOptions.fadeInMs,
+    fadeOutMs: overrides?.fadeOutMs ?? baseOptions.fadeOutMs,
+    maxPreviewLines: overrides?.maxPreviewLines ?? baseOptions.maxPreviewLines,
+    lingerMaxMs: overrides?.lingerMaxMs ?? baseOptions.lingerMaxMs,
     interlude,
     preset,
     layout: {
@@ -193,6 +213,9 @@ function assertStyleOptions(styles: PlanStyleOptions, role: string): void {
   if (styles.backOpacity !== undefined && (!Number.isFinite(styles.backOpacity) || styles.backOpacity < 0 || styles.backOpacity > 1)) {
     throw new RangeError(`${role}.backOpacity must be between 0 and 1, received ${styles.backOpacity}`);
   }
+  if (styles.shadow !== undefined && (!Number.isFinite(styles.shadow) || styles.shadow < 0)) {
+    throw new RangeError(`${role}.shadow must be a non-negative finite number, received ${styles.shadow}`);
+  }
   for (const color of ['primaryColor', 'secondaryColor', 'outlineColor', 'backColor'] as const) {
     if (styles[color] !== undefined) {
       assColorFromHex(styles[color]);
@@ -206,6 +229,12 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   }
   assertNonNegativeSafeInteger(options.mainLinePreRollMs, 'mainLinePreRollMs');
   assertNonNegativeSafeInteger(options.previewLeadMs, 'previewLeadMs');
+  assertNonNegativeSafeInteger(options.fadeInMs, 'fadeInMs');
+  assertNonNegativeSafeInteger(options.fadeOutMs, 'fadeOutMs');
+  if (!Number.isInteger(options.maxPreviewLines) || options.maxPreviewLines < 1 || options.maxPreviewLines > MAX_PREVIEW_LINES_CAP) {
+    throw new RangeError(`maxPreviewLines must be an integer from 1 to ${MAX_PREVIEW_LINES_CAP}, received ${options.maxPreviewLines}`);
+  }
+  assertNonNegativeSafeInteger(options.lingerMaxMs, 'lingerMaxMs');
   if (!Number.isSafeInteger(options.layout.resolutionX) || options.layout.resolutionX <= 0) {
     throw new RangeError(`layout.resolutionX must be a positive safe integer, received ${options.layout.resolutionX}`);
   }
@@ -213,7 +242,7 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
     throw new RangeError(`layout.resolutionY must be a positive safe integer, received ${options.layout.resolutionY}`);
   }
   assertAlignment(options.layout.alignment, 'layout.alignment');
-  for (const margin of ['marginLeft', 'marginRight', 'marginVertical'] as const) {
+  for (const margin of ['marginLeft', 'marginRight', 'marginVertical', 'rowGapPx'] as const) {
     assertNonNegativeSafeInteger(options.layout[margin], `layout.${margin}`);
   }
   assertStyleOptions(options.styles.lyrics ?? {}, 'styles.lyrics');
@@ -272,11 +301,26 @@ function createStyle(name: string, layout: LayoutOptions, options: PlanStyleOpti
     secondaryColor: assColorFromHex(options.secondaryColor ?? '#808080'),
     outlineColor: assColorFromHex(options.outlineColor ?? '#000000'),
     backColor: assColorFromHex(options.backColor ?? '#000000', options.backOpacity ?? 0),
+    shadow: options.shadow ?? 0,
     alignment: options.alignment ?? layout.alignment,
     marginLeft: options.marginLeft ?? layout.marginLeft,
     marginRight: options.marginRight ?? layout.marginRight,
     marginVertical: options.marginVertical ?? layout.marginVertical,
   };
+}
+
+function alignmentTag(alignment: AssStyle['alignment']): string {
+  return `{\\an${alignment}}`;
+}
+
+/** `\fad(in,out)` tag for an event of `durationMs`; empty when both durations are 0. Scaled down if their sum would exceed the event's own duration, so the line still reaches full opacity. */
+function fadeTag(fadeInMs: number, fadeOutMs: number, durationMs: number): string {
+  if (fadeInMs <= 0 && fadeOutMs <= 0) {
+    return '';
+  }
+  const totalMs = fadeInMs + fadeOutMs;
+  const scale = totalMs > durationMs && totalMs > 0 ? durationMs / totalMs : 1;
+  return `{\\fad(${Math.round(fadeInMs * scale)},${Math.round(fadeOutMs * scale)})}`;
 }
 
 function karaokeText(
@@ -401,7 +445,20 @@ export function planEvents(
   assertPlanOptions(options);
   const events: AssEvent[] = [];
   const lyricOccurrences: Array<{ event: AssEvent; occurrence: NormalizedLyrics['occurrences'][number] }> = [];
+  // Events exempted from fadeInMs/fadeOutMs at a Preview->Lyrics handoff (same row, no visual gap).
+  const noFadeInEvents = new Set<AssEvent>();
+  const noFadeOutEvents = new Set<AssEvent>();
   const interludeStyleName = options.interlude?.style ?? INTERLUDE_STYLE_NAME;
+  const lyricsStyle = createStyle(LYRIC_STYLE_NAME, options.layout, options.styles.lyrics ?? {});
+  const previewStyle = createStyle(PREVIEW_STYLE_NAME, options.layout, options.styles.preview ?? {});
+  const isMultiLine = PLAN_PRESETS[options.preset].showPreview;
+
+  const rowCount = options.maxPreviewLines + 1;
+  const rowBlockTopMargin = computeRowBlockTopMargin(options.layout.resolutionY, options.layout.rowGapPx, rowCount);
+  // ASS's alignment values can't give each row its own anchor edge, so every row shares one
+  // alignment (the preview style's) and gets its own MarginV set per-event instead.
+  const rowMarginForIndex = (index: number): number =>
+    rowBlockTopMargin + (index % rowCount) * (MULTI_LINE_LINE_HEIGHT_PX + options.layout.rowGapPx);
 
   // A lyric's box may start later than its own bracket timestamp when it has a large leading
   // enhanced-segment delay, deferred to just before its first sung word (never earlier than the bracket).
@@ -435,28 +492,133 @@ export function planEvents(
     events.push(event);
   }
 
-  if (PLAN_PRESETS[options.preset].showPreview) {
-    for (let index = 0; index < lyricOccurrences.length - 1; index++) {
-      const current = lyricOccurrences[index].event;
-      const next = lyricOccurrences[index + 1];
+  if (isMultiLine) {
+    // Rows normally rotate in occurrence order (row = rotation % rowCount), but whenever every
+    // row's most recent occupant will have already ended before an occurrence's own natural
+    // preview/appearance time — i.e. the screen would otherwise go genuinely blank, regardless of
+    // whether that gap is long enough to also qualify for an interlude — the rotation restarts
+    // from the top row instead of continuing wherever raw occurrence order would land it. This
+    // accounts for lingerMaxMs: a same-row predecessor that would linger far enough to reach this
+    // occurrence's own appearance is treated as still-visible coverage, not a blank gap.
+    const effectiveRow: number[] = new Array(lyricOccurrences.length);
+    const sameRowPredecessorIndex: Array<number | undefined> = new Array(lyricOccurrences.length);
+    const sameRowSuccessorIndex: Array<number | undefined> = new Array(lyricOccurrences.length);
+    const lastIndexForRow: Array<number | undefined> = new Array(rowCount).fill(undefined);
+    let rotation = 0;
+    let screenBusyUntilMs = -Infinity;
+    for (const [index, { event, occurrence }] of lyricOccurrences.entries()) {
+      if (index > 0) {
+        const naturalAppearanceMs = quantizeBoundary(effectiveSungStartMs(occurrence) - options.previewLeadMs);
+        const provisionalRow = (rotation + 1) % rowCount;
+        const predecessorIndex = lastIndexForRow[provisionalRow];
+        // A non-mutating estimate of how far this same-row predecessor would linger if this
+        // occurrence turns out to be its real successor; the actual lingering pass below applies
+        // the real extension once row assignment (and thus same-row successors) are final.
+        let predecessorCoverageMs = screenBusyUntilMs;
+        if (predecessorIndex !== undefined) {
+          const predecessorEndMs = lyricOccurrences[predecessorIndex].event.endMs;
+          const gapMs = naturalAppearanceMs - predecessorEndMs;
+          const isLongPause = options.interlude !== undefined
+            && options.interlude.strategy !== 'none'
+            && gapMs >= options.interlude.minGapMs;
+          const lingeredEndMs = gapMs > 0 && !isLongPause && options.lingerMaxMs > 0
+            ? predecessorEndMs + Math.min(gapMs, options.lingerMaxMs)
+            : predecessorEndMs;
+          predecessorCoverageMs = Math.max(predecessorCoverageMs, lingeredEndMs);
+        }
+        rotation = naturalAppearanceMs > predecessorCoverageMs ? 0 : rotation + 1;
+      }
+      const row = rotation % rowCount;
+      effectiveRow[index] = row;
+      sameRowPredecessorIndex[index] = lastIndexForRow[row];
+      if (lastIndexForRow[row] !== undefined) {
+        sameRowSuccessorIndex[lastIndexForRow[row]] = index;
+      }
+      lastIndexForRow[row] = index;
+      screenBusyUntilMs = Math.max(screenBusyUntilMs, event.endMs);
+    }
+
+    // Tag each Lyrics event with the row it occupies; a line's row never changes between its
+    // preview and current appearance (only its styling swaps in place).
+    for (const [index, { event }] of lyricOccurrences.entries()) {
+      event.marginVertical = rowMarginForIndex(effectiveRow[index]);
+      event.text = alignmentTag(previewStyle.alignment) + event.text;
+    }
+
+    // Each occurrence's preview window is computed independently (not just one line ahead of
+    // "current"), so up to rowCount-1 upcoming lines can preview simultaneously once their own
+    // windows overlap. A row can't preview its next occupant until its previous one (its same-row
+    // predecessor, per the rotation above) has finished being current, which also prevents
+    // same-row visual overlap.
+    // rowNeededAtMs[index] records when this occurrence's row starts being needed for it (its own
+    // preview start, or its own Lyrics start if no preview shows), used below for lingering.
+    const rowNeededAtMs: number[] = new Array(lyricOccurrences.length);
+    for (let index = 1; index < lyricOccurrences.length; index++) {
+      const { event, occurrence } = lyricOccurrences[index];
+      // Before a row's first use, nothing has ever occupied it, but a preview still shouldn't
+      // appear before the very first Lyrics event of the whole song (e.g. during a leading
+      // instrumental gap) since nothing would yet be on screen to accompany it.
+      const predecessorIndex = sameRowPredecessorIndex[index];
+      const rowFreeAtMs = predecessorIndex !== undefined
+        ? lyricOccurrences[predecessorIndex].event.endMs
+        : lyricOccurrences[0].event.startMs;
       const previewStartMs = Math.max(
-        current.startMs,
-        quantizeBoundary(effectiveSungStartMs(next.occurrence) - options.previewLeadMs),
+        rowFreeAtMs,
+        quantizeBoundary(effectiveSungStartMs(occurrence) - options.previewLeadMs),
       );
-      const previewEndMs = next.event.startMs;
+      const previewEndMs = event.startMs;
+      rowNeededAtMs[index] = event.startMs;
       if (previewEndMs > previewStartMs) {
-        events.push({
+        const previewEvent: AssEvent = {
           layer: -1,
           startMs: previewStartMs,
           endMs: previewEndMs,
           style: PREVIEW_STYLE_NAME,
-          text: escapeAssText(next.occurrence.text),
-        });
+          marginVertical: rowMarginForIndex(effectiveRow[index]),
+          // Same row this occurrence's own Lyrics event will use, so it doesn't move when promoted to current.
+          text: alignmentTag(previewStyle.alignment) + escapeAssText(occurrence.text),
+        };
+        events.push(previewEvent);
+        // The preview hands off to its own Lyrics event at the same instant with no visual gap
+        // (same row, same line), so fading out/in right at that handoff would be a distracting
+        // flicker; only fade in when the line first appears, and out when it truly leaves the screen.
+        noFadeOutEvents.add(previewEvent);
+        noFadeInEvents.add(event);
+        rowNeededAtMs[index] = previewStartMs;
+      }
+    }
+
+    // An already-sung line can keep showing on its row to fill what would otherwise be dead time
+    // before that row's next occupant needs it, capped at lingerMaxMs and skipped for gaps long
+    // enough to warrant an interlude instead (mirrors addInterludeEvents' own strategy check).
+    if (options.lingerMaxMs > 0) {
+      for (let index = 0; index < lyricOccurrences.length; index++) {
+        const successorIndex = sameRowSuccessorIndex[index];
+        if (successorIndex === undefined) {
+          continue;
+        }
+        const current = lyricOccurrences[index].event;
+        const gapMs = rowNeededAtMs[successorIndex] - current.endMs;
+        const isLongPause = options.interlude !== undefined
+          && options.interlude.strategy !== 'none'
+          && gapMs >= options.interlude.minGapMs;
+        if (gapMs > 0 && !isLongPause) {
+          current.endMs += Math.min(gapMs, options.lingerMaxMs);
+        }
       }
     }
   }
 
   addInterludeEvents(events, lyricOccurrences.map(({ event }) => event), options);
+
+  if (options.fadeInMs > 0 || options.fadeOutMs > 0) {
+    for (const event of events) {
+      const fadeInMs = noFadeInEvents.has(event) ? 0 : options.fadeInMs;
+      const fadeOutMs = noFadeOutEvents.has(event) ? 0 : options.fadeOutMs;
+      event.text = fadeTag(fadeInMs, fadeOutMs, event.endMs - event.startMs) + event.text;
+    }
+  }
+
   const orderedEvents = events
     .map((event, index) => ({ event, index }))
     .sort((left, right) => left.event.startMs - right.event.startMs
@@ -470,8 +632,8 @@ export function planEvents(
       playResY: options.layout.resolutionY,
     },
     styles: [
-      createStyle(LYRIC_STYLE_NAME, options.layout, options.styles.lyrics ?? {}),
-      createStyle(PREVIEW_STYLE_NAME, options.layout, options.styles.preview ?? {}),
+      lyricsStyle,
+      previewStyle,
       createStyle(INTERLUDE_STYLE_NAME, options.layout, options.styles.interlude ?? {}),
       ...(interludeStyleName === LYRIC_STYLE_NAME
         || interludeStyleName === PREVIEW_STYLE_NAME

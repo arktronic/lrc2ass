@@ -18,10 +18,10 @@ describe('ESM loading', () => {
   it('runs a working end-to-end conversion through the dynamically loaded module', async () => {
     const { convert } = await import('../src/index.js');
 
-    const result = convert('[offset:0]\r\n[00:00.00]Hello world\r\n', {});
+    const result = convert('[offset:0]\r\n[00:00.00]Hello world\r\n', { plan: { fadeInMs: 0, fadeOutMs: 0 } });
 
     expect(result.diagnostics).toEqual([]);
     expect(result.text).toContain('[Script Info]\r\n');
-    expect(result.text).toContain('Dialogue: 0,0:00:00.00,0:00:05.00,Lyrics,,0,0,0,,Hello world');
+    expect(result.text).toContain('Dialogue: 0,0:00:00.00,0:00:05.00,Lyrics,,0,0,88,,{\\an8}Hello world');
   });
 });

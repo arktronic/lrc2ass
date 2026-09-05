@@ -8,6 +8,10 @@ export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
   preset: 'multi-line',
   mainLinePreRollMs: 1000,
   previewLeadMs: 4000,
+  fadeInMs: 150,
+  fadeOutMs: 300,
+  maxPreviewLines: 3,
+  lingerMaxMs: 5000,
   interlude: {
     minGapMs: 8000,
     strategy: 'text',
@@ -21,5 +25,6 @@ export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
     marginLeft: 10,
     marginRight: 10,
     marginVertical: 10,
+    rowGapPx: 8,
   },
 };
