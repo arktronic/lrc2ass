@@ -19,7 +19,6 @@ const INTERLUDE_STYLE_NAME = 'Interlude';
 const DEFAULT_INTERLUDE_MARGIN_MS = 0;
 const DEFAULT_INTERLUDE_TEXT = '♪ Instrumental ♪';
 const CENTISECOND_MS = 10;
-const MULTI_LINE_LINE_HEIGHT_PX = 22; // approximate rendered line height at fontSize 28
 const PRE_SWEEP_DOT_CHAR = '\u00B7';
 const PRE_SWEEP_DOT_COUNT = 4;
 const PROGRESS_BAR_HEIGHT_PX = 24;
@@ -31,8 +30,8 @@ const MAX_PREVIEW_LINES_CAP = 8;
 // anchored edge to its first row. For the default 2-row case, an8 (top row) measures it from the
 // top edge and an2 (bottom row) measures it from the bottom edge, so this single value centers both
 // rows toward/away from each other at once (twice as fast as either edge alone).
-function computeRowBlockTopMargin(resolutionY: number, rowGapPx: number, rowCount: number): number {
-  return Math.round((resolutionY - rowCount * MULTI_LINE_LINE_HEIGHT_PX - (rowCount - 1) * rowGapPx) / 2);
+function computeRowBlockTopMargin(resolutionY: number, rowHeightPx: number, rowCount: number): number {
+  return Math.round((resolutionY - rowCount * rowHeightPx) / 2);
 }
 
 interface ResolvedPlanOptions extends PlanOptions {
@@ -246,8 +245,25 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
     throw new RangeError(`layout.resolutionY must be a positive safe integer, received ${options.layout.resolutionY}`);
   }
   assertAlignment(options.layout.alignment, 'layout.alignment');
-  for (const margin of ['marginLeft', 'marginRight', 'marginVertical', 'rowGapPx'] as const) {
+  for (const margin of ['marginLeft', 'marginRight', 'marginVertical'] as const) {
     assertNonNegativeSafeInteger(options.layout[margin], `layout.${margin}`);
+  }
+  if (options.layout.marginLeft + options.layout.marginRight >= options.layout.resolutionX) {
+    throw new RangeError(
+      `layout.marginLeft + layout.marginRight must be less than layout.resolutionX, received `
+      + `${options.layout.marginLeft} + ${options.layout.marginRight} >= ${options.layout.resolutionX}`,
+    );
+  }
+  if (!Number.isSafeInteger(options.layout.rowHeightPx) || options.layout.rowHeightPx <= 0) {
+    throw new RangeError(`layout.rowHeightPx must be a positive safe integer, received ${options.layout.rowHeightPx}`);
+  }
+  const rowCount = options.maxPreviewLines + 1;
+  const rowBlockHeight = rowCount * options.layout.rowHeightPx;
+  if (rowBlockHeight > options.layout.resolutionY) {
+    throw new RangeError(
+      `The multi-line row block (maxPreviewLines + 1 = ${rowCount} rows * layout.rowHeightPx `
+      + `${options.layout.rowHeightPx} = ${rowBlockHeight}) must fit within layout.resolutionY, received ${options.layout.resolutionY}`,
+    );
   }
   assertStyleOptions(options.styles.lyrics ?? {}, 'styles.lyrics');
   assertStyleOptions(options.styles.preview ?? {}, 'styles.preview');
@@ -327,7 +343,10 @@ function fadeTag(fadeInMs: number, fadeOutMs: number, durationMs: number): strin
   }
   const totalMs = fadeInMs + fadeOutMs;
   const scale = totalMs > durationMs && totalMs > 0 ? durationMs / totalMs : 1;
-  return `{\\fad(${Math.round(fadeInMs * scale)},${Math.round(fadeOutMs * scale)})}`;
+  // Round fadeIn, then derive fadeOut as its complement so the rounded pair's sum can never exceed the scaled total.
+  const roundedFadeInMs = Math.round(fadeInMs * scale);
+  const roundedFadeOutMs = Math.round(totalMs * scale) - roundedFadeInMs;
+  return `{\\fad(${roundedFadeInMs},${roundedFadeOutMs})}`;
 }
 
 // A count-in of dots, each getting its own \k slice, so they light up one by one across the
@@ -350,6 +369,17 @@ interface KaraokeTextResult {
   showedPreSweep: boolean;
 }
 
+// A leading pre-token segment (before the first enhanced tag) can be whitespace-only padding rather
+// than sung text, so the first *sung* word may start later than segments[0]. Drops any such leading
+// padding (falling back to the original segments if every one is whitespace-only, which shouldn't
+// happen for valid lyrics) so callers consistently treat the first non-whitespace segment as the start.
+function sungSegments(
+  segments: NonNullable<NormalizedLyrics['occurrences'][number]['segments']>,
+): NonNullable<NormalizedLyrics['occurrences'][number]['segments']> {
+  const firstSungIndex = segments.findIndex((segment) => segment.text.trim().length > 0);
+  return firstSungIndex <= 0 ? segments : segments.slice(firstSungIndex);
+}
+
 function karaokeText(
   text: string,
   segments: NormalizedLyrics['occurrences'][number]['segments'],
@@ -364,9 +394,12 @@ function karaokeText(
     return { text: escapeAssText(text), showedPreSweep: false };
   }
 
+  // Leading whitespace-only padding is folded into leadingTag below instead of rendered as its own
+  // (otherwise duplicate) invisible syllable.
+  const renderedSegments = sungSegments(segments);
   const firstSegmentStartMs = Math.min(
     eventEndMs,
-    Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segments[0].timeMs)),
+    Math.max(eventStartMs, quantizeBoundary(sourceStartMs + renderedSegments[0].timeMs)),
   );
   const leadingDurationMs = firstSegmentStartMs - eventStartMs;
   const showedPreSweep = leadingDurationMs > 0 && showPreSweep;
@@ -376,17 +409,20 @@ function karaokeText(
       ? preSweepText(tag, leadingDurationMs)
       : `{\\${tag}${leadingDurationMs / CENTISECOND_MS}}`;
 
-  const karaokeSegments = leadingTag + segments.map((segment, index) => {
+  const karaokeSegments = leadingTag + renderedSegments.map((segment, index) => {
     const segmentStart = Math.min(eventEndMs, Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segment.timeMs)));
-    const nextSegment = segments[index + 1];
+    const nextSegment = renderedSegments[index + 1];
     const segmentEnd = nextSegment
       ? Math.min(eventEndMs, Math.max(segmentStart, quantizeBoundary(sourceStartMs + nextSegment.timeMs)))
       : eventEndMs;
     const durationCentiseconds = (segmentEnd - segmentStart) / CENTISECOND_MS;
     // Some enhanced-LRC generators pad tags with a space on both sides; since a {\k} tag renders invisibly,
-    // a trailing space on one segment plus a leading space on the next would visually double up. Keep only
-    // the next segment's leading space as the word separator, and drop the very first segment's leading space.
-    let segmentText = segment.text.trimEnd();
+    // a trailing space on one segment plus a leading space on the next would visually double up. Only drop
+    // this segment's trailing space when there's no next segment (outer padding) or the next one also has
+    // its own leading space; otherwise this is the only word separator between them. Also drop the very
+    // first segment's leading space (outer padding).
+    const trimTrailingSpace = nextSegment === undefined || /^\s/.test(nextSegment.text);
+    let segmentText = trimTrailingSpace ? segment.text.trimEnd() : segment.text;
     if (index === 0) {
       segmentText = segmentText.trimStart();
     }
@@ -428,7 +464,9 @@ function lyricEndMs(
 
 /** The moment a lyric's first sung word actually occurs, per its enhanced segment timing (or its own timestamp if plain). */
 function effectiveSungStartMs(occurrence: NormalizedLyrics['occurrences'][number]): number {
-  const firstSegment = occurrence.segments?.[0];
+  const firstSegment = occurrence.segments && occurrence.segments.length > 0
+    ? sungSegments(occurrence.segments)[0]
+    : undefined;
   return firstSegment ? occurrence.startMs + firstSegment.timeMs : occurrence.startMs;
 }
 
@@ -568,11 +606,11 @@ export function planEvents(
   const isMultiLine = PLAN_PRESETS[options.preset].showPreview;
 
   const rowCount = options.maxPreviewLines + 1;
-  const rowBlockTopMargin = computeRowBlockTopMargin(options.layout.resolutionY, options.layout.rowGapPx, rowCount);
+  const rowBlockTopMargin = computeRowBlockTopMargin(options.layout.resolutionY, options.layout.rowHeightPx, rowCount);
   // ASS's alignment values can't give each row its own anchor edge, so every row shares one
   // alignment (the preview style's) and gets its own MarginV set per-event instead.
   const rowMarginForIndex = (index: number): number =>
-    rowBlockTopMargin + (index % rowCount) * (MULTI_LINE_LINE_HEIGHT_PX + options.layout.rowGapPx);
+    rowBlockTopMargin + (index % rowCount) * options.layout.rowHeightPx;
 
   // A lyric's box may start later than its own bracket timestamp when it has a large leading
   // enhanced-segment delay, deferred to just before its first sung word (never earlier than the bracket).
@@ -613,6 +651,11 @@ export function planEvents(
     lyricOccurrences.push({ event, occurrence, showedPreSweep });
     events.push(event);
   }
+
+  // Deferred starts can invert the source order (a line with a long leading delay may end up
+  // displayed after a later, undelayed line); row assignment and addInterludeEvents below both
+  // need chronological order to reason about "previous"/gaps correctly.
+  lyricOccurrences.sort((left, right) => left.event.startMs - right.event.startMs);
 
   if (isMultiLine) {
     // Rows normally rotate in occurrence order (row = rotation % rowCount), but whenever every

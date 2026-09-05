@@ -17,7 +17,7 @@ export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
     strategy: 'progress-bar',
     marginMs: 500,
     trailingLyricDurationMs: 5000,
-    blankGapMs: 4000,
+    blankGapMs: 3000,
   },
   layout: {
     resolutionX: 384,
@@ -26,6 +26,6 @@ export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
     marginLeft: 10,
     marginRight: 10,
     marginVertical: 10,
-    rowGapPx: 8,
+    rowHeightPx: 30,
   },
 };

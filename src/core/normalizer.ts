@@ -107,7 +107,6 @@ export function normalizeLyrics(
     reportInvalidMetadata('t_time', document.metadata.t_time);
   }
 
-  // Validate caller offsetMs
   let callerOffsetMs = 0;
   if (options.offsetMs !== undefined) {
     if (!Number.isSafeInteger(options.offsetMs)) {
@@ -121,7 +120,6 @@ export function normalizeLyrics(
     }
   }
 
-  // Validate combined total offset
   let totalOffsetMs = metadataOffsetMs + callerOffsetMs;
   if (!Number.isSafeInteger(totalOffsetMs)) {
     diagnostics.push({
@@ -134,7 +132,6 @@ export function normalizeLyrics(
     }
   }
 
-  // Validate public duration options
   let defaultTrailingDurationMs = DEFAULT_TRAILING_DURATION_MS;
   if (options.defaultTrailingDurationMs !== undefined) {
     if (!Number.isSafeInteger(options.defaultTrailingDurationMs) || options.defaultTrailingDurationMs < 0) {
@@ -194,7 +191,6 @@ export function normalizeLyrics(
       let effectiveStartMs = unclampedStartMs;
       const prevTs = t === 0 ? previousLineTimeMs : lineLevelPrevTs;
 
-      // Monotonicity check
       if (prevTs !== undefined && effectiveStartMs < prevTs) {
         const isLineLevel = t === 0;
         const msgPrefix = isLineLevel
@@ -220,12 +216,10 @@ export function normalizeLyrics(
 
       let segments = line.enhancedSegments ? [...line.enhancedSegments] : undefined;
 
-      // Shift segments if effective start was clamped upwards by monotonicity
       if (segments && effectiveStartMs > unclampedStartMs) {
         segments = shiftSegments(segments, effectiveStartMs - unclampedStartMs);
       }
 
-      // Negative effective start time handling
       if (effectiveStartMs < 0) {
         diagnostics.push({
           code: 'LRC_NEGATIVE_TIME',
@@ -261,7 +255,6 @@ export function normalizeLyrics(
     };
   }
 
-  // Stable sort: by startMs ascending, preserving sourceIndex for equal start times
   rawOccurrences.sort((a, b) => {
     if (a.startMs !== b.startMs) {
       return a.startMs - b.startMs;
@@ -269,7 +262,7 @@ export function normalizeLyrics(
     return a.sourceIndex - b.sourceIndex;
   });
 
-  // Precompute next distinct start times in O(N) backward pass
+  // Backward pass avoids an O(N²) rescan per occurrence for its next distinct start time.
   const nextDistinctStarts: (number | undefined)[] = new Array(rawOccurrences.length);
   let nextDistinct: number | undefined;
   for (let i = rawOccurrences.length - 1; i >= 0; i--) {
@@ -285,7 +278,6 @@ export function normalizeLyrics(
     { name: 'trackEndMs', value: validatedTrackEndMs },
   ];
 
-  // Infer occurrence boundaries
   const occurrences: Occurrence[] = [];
 
   for (let i = 0; i < rawOccurrences.length; i++) {
@@ -294,7 +286,6 @@ export function normalizeLyrics(
 
     const nextStartMs = nextDistinctStarts[i];
 
-    // Enhanced segment boundary calculation
     let finalEnhancedSegmentStartMs: number | undefined;
     let trailingEnhancedEndMs: number | undefined;
     if (curr.segments && curr.segments.length > 0) {
@@ -388,7 +379,6 @@ export function normalizeLyrics(
     };
   }
 
-  // Overlap handling
   if (overlapPolicy === 'truncate') {
     for (let i = 0; i < occurrences.length - 1; i++) {
       const nextStrictlyLaterStart = nextDistinctStarts[i];

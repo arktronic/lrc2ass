@@ -17,9 +17,13 @@ export interface NormalizedLyrics {
 
 export interface NormalizeOptions {
   mode?: ValidationMode;
+  /** Added to any `[offset:]` metadata offset (not a replacement for it) before normalization. */
   offsetMs?: number;
+  /** How to resolve an occurrence whose inferred end runs past the next occurrence's start. */
   overlapPolicy?: OverlapPolicy;
+  /** End of the track (ms); a fallback boundary for the final occurrence when no other duration hint applies. */
   trackEndMs?: number;
+  /** Fallback duration (ms) an occurrence remains visible past its start when no other boundary hint applies. */
   defaultTrailingDurationMs?: number;
 }
 
@@ -29,9 +33,12 @@ export interface NormalizeResult {
 }
 
 export interface InterludeOptions {
+  /** Minimum silence (ms) between lyrics required before an interlude is inserted into the gap. */
   minGapMs: number;
+  /** 'none': no interlude. 'text': static caption. 'countdown': seconds-remaining ticker. 'progress-bar': filling bar. */
   strategy: 'none' | 'text' | 'countdown' | 'progress-bar';
   style?: string;
+  /** Gap (ms) kept clear on each side of an interlude so it doesn't touch the adjacent lyrics. */
   marginMs?: number;
   /** Time a lyric remains visible after its start, or its final enhanced segment start. */
   trailingLyricDurationMs?: number;
@@ -45,14 +52,16 @@ export interface InterludeOptions {
 }
 
 export interface LayoutOptions {
+  /** Script's authoring coordinate space (ASS "PlayResX"), not necessarily the video's actual resolution. */
   resolutionX: number;
+  /** Script's authoring coordinate space (ASS "PlayResY"), not necessarily the video's actual resolution. */
   resolutionY: number;
   alignment: AssAlignment;
   marginLeft: number;
   marginRight: number;
   marginVertical: number;
-  /** Desired empty space (px) between the multi-line preset's two rows; unused by single-line. */
-  rowGapPx: number;
+  /** Row pitch (px) between the multi-line preset's rows; unused by single-line. */
+  rowHeightPx: number;
 }
 
 /** High-level visual settings for a generated ASS style. Colors use `#RRGGBB`. */
@@ -63,6 +72,7 @@ export interface PlanStyleOptions {
   secondaryColor?: string;
   outlineColor?: string;
   backColor?: string;
+  /** Opacity of backColor from 0 (transparent) to 1 (opaque). */
   backOpacity?: number;
   /** Drop-shadow offset distance in pixels; 0 (the default) means backColor/backOpacity have no visible effect. */
   shadow?: number;
@@ -90,9 +100,9 @@ export interface PlanOptions {
   mainLinePreRollMs: number;
   /** Max lead time before the next lyric's first sung word that a Preview event may appear. */
   previewLeadMs: number;
-  /** Fade-in duration (ms) applied to every event; 0 (the default) disables it. */
+  /** Fade-in duration (ms) applied to every event; 0 disables it. */
   fadeInMs: number;
-  /** Fade-out duration (ms) applied to every event; 0 (the default) disables it. */
+  /** Fade-out duration (ms) applied to every event; 0 disables it. */
   fadeOutMs: number;
   /** Multi-line preset: how many upcoming lyrics may be previewed at once (1-8, default 3, i.e. a 4-row layout). Each gets its own permanently-assigned row; more rows are simultaneously populated only when the song's pace brings enough upcoming lines within previewLeadMs at once. */
   maxPreviewLines: number;
@@ -115,6 +125,7 @@ export interface PlanOverrideOptions {
 }
 
 export interface SerializeOptions {
+  /** Whether to emit the [Script Info] Title field from the LRC's `ti` metadata, when present. */
   includeMetadataComments?: boolean;
 }
 
