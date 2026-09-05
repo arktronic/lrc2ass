@@ -6,7 +6,7 @@ export const DEFAULT_TRAILING_DURATION_MS = 5000;
 export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
   karaokeEffect: 'sweep',
   preset: 'multi-line',
-  mainLinePreRollMs: 1000,
+  mainLinePreRollMs: 1500,
   previewLeadMs: 4000,
   fadeInMs: 150,
   fadeOutMs: 300,

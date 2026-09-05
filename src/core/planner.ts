@@ -20,6 +20,8 @@ const DEFAULT_INTERLUDE_MARGIN_MS = 0;
 const DEFAULT_INTERLUDE_TEXT = '♪ Instrumental ♪';
 const CENTISECOND_MS = 10;
 const MULTI_LINE_LINE_HEIGHT_PX = 22; // approximate rendered line height at fontSize 28
+const PRE_SWEEP_DOT_CHAR = '\u00B7';
+const PRE_SWEEP_DOT_COUNT = 4;
 /** Hard cap on maxPreviewLines; keeps the multi-line preset's row stack to a sane, readable size. */
 const MAX_PREVIEW_LINES_CAP = 8;
 
@@ -323,6 +325,26 @@ function fadeTag(fadeInMs: number, fadeOutMs: number, durationMs: number): strin
   return `{\\fad(${Math.round(fadeInMs * scale)},${Math.round(fadeOutMs * scale)})}`;
 }
 
+// A count-in of dots, each getting its own \k slice, so they light up one by one across the
+// pre-roll gap and the last one clears exactly as the first real syllable begins.
+function preSweepText(tag: string, leadingDurationMs: number): string {
+  let text = '';
+  let allocatedMs = 0;
+  for (let dotIndex = 0; dotIndex < PRE_SWEEP_DOT_COUNT; dotIndex++) {
+    const targetMs = quantizeBoundary((leadingDurationMs * (dotIndex + 1)) / PRE_SWEEP_DOT_COUNT);
+    const durationCentiseconds = (targetMs - allocatedMs) / CENTISECOND_MS;
+    text += `{\\${tag}${durationCentiseconds}}${PRE_SWEEP_DOT_CHAR}`;
+    allocatedMs = targetMs;
+  }
+  return `${text} `;
+}
+
+interface KaraokeTextResult {
+  text: string;
+  /** Whether the pre-sweep dot count-in (not just the plain empty syllable) was rendered. */
+  showedPreSweep: boolean;
+}
+
 function karaokeText(
   text: string,
   segments: NormalizedLyrics['occurrences'][number]['segments'],
@@ -330,18 +352,24 @@ function karaokeText(
   eventStartMs: number,
   eventEndMs: number,
   effect: KaraokeEffect,
-): string {
+  showPreSweep: boolean,
+): KaraokeTextResult {
   const tag = karaokeTag(effect);
   if (!tag || !segments || segments.length === 0) {
-    return escapeAssText(text);
+    return { text: escapeAssText(text), showedPreSweep: false };
   }
 
   const firstSegmentStartMs = Math.min(
     eventEndMs,
     Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segments[0].timeMs)),
   );
-  const leadingDurationCentiseconds = (firstSegmentStartMs - eventStartMs) / CENTISECOND_MS;
-  const leadingTag = leadingDurationCentiseconds > 0 ? `{\\${tag}${leadingDurationCentiseconds}}` : '';
+  const leadingDurationMs = firstSegmentStartMs - eventStartMs;
+  const showedPreSweep = leadingDurationMs > 0 && showPreSweep;
+  const leadingTag = leadingDurationMs <= 0
+    ? ''
+    : showedPreSweep
+      ? preSweepText(tag, leadingDurationMs)
+      : `{\\${tag}${leadingDurationMs / CENTISECOND_MS}}`;
 
   const karaokeSegments = leadingTag + segments.map((segment, index) => {
     const segmentStart = Math.min(eventEndMs, Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segment.timeMs)));
@@ -360,12 +388,16 @@ function karaokeText(
     return `{\\${tag}${durationCentiseconds}}${escapeAssText(segmentText)}`;
   }).join('');
   // Tags contain no spaces, so collapsing runs of 2+ spaces in the assembled string is safe.
-  return collapseSpaces(karaokeSegments);
+  return { text: collapseSpaces(karaokeSegments), showedPreSweep };
 }
 
 function collapseSpaces(text: string): string {
   return text.replace(/ {2,}/g, ' ');
 }
+
+// Static (non-animated) equivalent of preSweepText's dot run, for a Preview event to match the
+// character layout its own Lyrics event will show once promoted, so nothing visually shifts at handoff.
+const PRE_SWEEP_STATIC_PREFIX = `${PRE_SWEEP_DOT_CHAR.repeat(PRE_SWEEP_DOT_COUNT)} `;
 
 function lyricEndMs(
   occurrence: NormalizedLyrics['occurrences'][number],
@@ -444,7 +476,11 @@ export function planEvents(
   const options = resolvePlanOptions(baseOptions, overrideOptions);
   assertPlanOptions(options);
   const events: AssEvent[] = [];
-  const lyricOccurrences: Array<{ event: AssEvent; occurrence: NormalizedLyrics['occurrences'][number] }> = [];
+  const lyricOccurrences: Array<{
+    event: AssEvent;
+    occurrence: NormalizedLyrics['occurrences'][number];
+    showedPreSweep: boolean;
+  }> = [];
   // Events exempted from fadeInMs/fadeOutMs at a Preview->Lyrics handoff (same row, no visual gap).
   const noFadeInEvents = new Set<AssEvent>();
   const noFadeOutEvents = new Set<AssEvent>();
@@ -474,21 +510,29 @@ export function planEvents(
       continue;
     }
 
+    // The pre-sweep count-in only earns its keep when there was genuine dead air before this
+    // line; a previous line ending right up against this one's start shouldn't get a flicker.
+    // The very first line has no predecessor, so a leading instrumental gap always counts.
+    const previousEndMs = index > 0 ? normalized.occurrences[index - 1].endMs : -Infinity;
+    const showPreSweep = effectiveSungStartMs(occurrence) - previousEndMs >= options.mainLinePreRollMs;
+
+    const { text, showedPreSweep } = karaokeText(
+      occurrence.text,
+      occurrence.segments,
+      occurrence.startMs,
+      startMs,
+      endMs,
+      options.karaokeEffect,
+      showPreSweep,
+    );
     const event: AssEvent = {
       layer: 0,
       startMs,
       endMs,
       style: LYRIC_STYLE_NAME,
-      text: karaokeText(
-        occurrence.text,
-        occurrence.segments,
-        occurrence.startMs,
-        startMs,
-        endMs,
-        options.karaokeEffect,
-      ),
+      text,
     };
-    lyricOccurrences.push({ event, occurrence });
+    lyricOccurrences.push({ event, occurrence, showedPreSweep });
     events.push(event);
   }
 
@@ -554,7 +598,7 @@ export function planEvents(
     // preview start, or its own Lyrics start if no preview shows), used below for lingering.
     const rowNeededAtMs: number[] = new Array(lyricOccurrences.length);
     for (let index = 1; index < lyricOccurrences.length; index++) {
-      const { event, occurrence } = lyricOccurrences[index];
+      const { event, occurrence, showedPreSweep } = lyricOccurrences[index];
       // Before a row's first use, nothing has ever occupied it, but a preview still shouldn't
       // appear before the very first Lyrics event of the whole song (e.g. during a leading
       // instrumental gap) since nothing would yet be on screen to accompany it.
@@ -576,7 +620,10 @@ export function planEvents(
           style: PREVIEW_STYLE_NAME,
           marginVertical: rowMarginForIndex(effectiveRow[index]),
           // Same row this occurrence's own Lyrics event will use, so it doesn't move when promoted to current.
-          text: alignmentTag(previewStyle.alignment) + escapeAssText(occurrence.text),
+          // Mirrors its own Lyrics event's pre-sweep dot prefix (static here) so nothing shifts at handoff.
+          text: alignmentTag(previewStyle.alignment)
+            + (showedPreSweep ? PRE_SWEEP_STATIC_PREFIX : '')
+            + escapeAssText(occurrence.text),
         };
         events.push(previewEvent);
         // The preview hands off to its own Lyrics event at the same instant with no visual gap

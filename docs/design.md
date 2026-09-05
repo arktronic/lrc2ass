@@ -46,7 +46,7 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Handle source overlaps through an explicit `preserve`, `truncate`, or `error` policy.
 - Negative or decreasing effective times fail in strict mode; tolerant mode clamps them and emits diagnostics.
 - Completely untimed lines remain in the model but cannot produce events without caller-supplied timing.
-- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset. The converter does not invent word timing or perform linguistic tokenization.
+- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset, unless a pre-sweep dot count-in is shown instead (see Event Planner Defaults). The converter does not invent word timing or perform linguistic tokenization.
 - A lyric's effective sung-start is its first enhanced segment's absolute time (or its own timestamp if plain/segment-less).
 - Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing. A gap before the very first lyric (e.g. an instrumental intro) is detected the same way as any inter-lyric gap.
 - Escape lyric text so embedded ASS override syntax cannot execute.
@@ -72,6 +72,7 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - A `text` interlude displays `♪ Instrumental ♪`; a `countdown` interlude emits one-second events labelled with whole seconds remaining.
 - `fadeInMs`/`fadeOutMs` add a `\fad` tag to every emitted event; if their sum would exceed an event's own duration, both are scaled down proportionally so the event still reaches full opacity. A `Preview` event that hands off directly into its own `Lyrics` event (same row, no gap) is exempted from fading out, and that `Lyrics` event is exempted from fading in, so a line already visible as a preview doesn't flicker out and back in when it becomes current; only its true first entrance and final exit fade.
 - Planner options are validated at runtime and invalid values throw `RangeError`.
+- A pre-sweep dot count-in (four `·` characters, each its own karaoke slice) fills a line's leading enhanced-timestamp gap when there was genuine dead air beforehand — the gap since the previous lyric's `endMs` to this line's own effective sung-start must be at least `mainLinePreRollMs`, otherwise the gap stays an inert empty syllable as before. The first lyric of the song always qualifies (no predecessor to compare against). A line's own `Preview` event (multi-line preset) mirrors the same dot prefix (statically, without the animated timing) whenever its Lyrics event will show one, so nothing visually shifts at the Preview-to-Lyrics handoff. This gives the singer a visible, timed cue for exactly when to start, in place of an earlier attempt (a `\move`-animated drawn dot), which was tried and reverted.
 
 ## Configuration Areas
 

@@ -147,7 +147,8 @@ describe('planEvents', () => {
       }],
     }, { ...options, karaokeEffect: 'sweep' }).events;
 
-    expect(event.text).toBe('{\\kf50}{\\kf150}Hello');
+    // First line, so its leading gap is always pre-sweep-eligible (no predecessor to compare against).
+    expect(event.text).toBe('{\\kf13}\u00B7{\\kf12}\u00B7{\\kf13}\u00B7{\\kf12}\u00B7 {\\kf150}Hello');
   });
 
   it('defers a lyric event start when its leading enhanced-segment delay exceeds mainLinePreRollMs', () => {
@@ -162,7 +163,80 @@ describe('planEvents', () => {
 
     // 15_000ms delay minus the 1_000ms default pre-roll = starts at 14_000ms instead of 0.
     expect(event.startMs).toBe(14_000);
-    expect(event.text).toBe('{\\kf100}{\\kf500}La la la');
+    // First line, so its leading gap is always pre-sweep-eligible (no predecessor to compare against).
+    expect(event.text).toBe('{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf500}La la la');
+  });
+
+  it('shows a pre-sweep dot count-in when the gap since the previous line is at least mainLinePreRollMs', () => {
+    const [, second] = planEvents({
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        {
+          startMs: 1_000,
+          endMs: 3_000,
+          text: 'Second',
+          segments: [{ text: 'Second', timeMs: 1_000, location: { line: 1, column: 1 } }],
+        },
+      ],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    // Gap from First's endMs (1_000) to Second's sung start (2_000) is 1_000ms, meeting mainLinePreRollMs.
+    expect(second.text).toBe('{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf100}Second');
+  });
+
+  it('does not show a pre-sweep dot count-in when the gap since the previous line is too short', () => {
+    const [, second] = planEvents({
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        {
+          startMs: 1_000,
+          endMs: 2_500,
+          text: 'Second',
+          segments: [{ text: 'Second', timeMs: 500, location: { line: 1, column: 1 } }],
+        },
+      ],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    // Gap from First's endMs (1_000) to Second's sung start (1_500) is only 500ms, under mainLinePreRollMs.
+    expect(second.text).toBe('{\\kf50}{\\kf100}Second');
+  });
+
+  it("mirrors a line's pre-sweep dot prefix in its own Preview event so text doesn't shift at handoff", () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        {
+          startMs: 1_000,
+          endMs: 3_000,
+          text: 'Second',
+          segments: [{ text: 'Second', timeMs: 1_000, location: { line: 1, column: 1 } }],
+        },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', karaokeEffect: 'sweep' });
+
+    const preview = document.events.find((event) => event.style === 'Preview');
+    expect(preview?.text).toBe('{\\an8}\u00B7\u00B7\u00B7\u00B7 Second');
+  });
+
+  it('does not add a dot prefix to a Preview event when its line has no pre-sweep', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        {
+          startMs: 1_000,
+          endMs: 2_500,
+          text: 'Second',
+          segments: [{ text: 'Second', timeMs: 500, location: { line: 1, column: 1 } }],
+        },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', karaokeEffect: 'sweep' });
+
+    const preview = document.events.find((event) => event.style === 'Preview');
+    expect(preview?.text).toBe('{\\an8}Second');
   });
 
   it('does not defer a lyric event start when there is no leading delay', () => {
@@ -223,7 +297,7 @@ describe('planEvents', () => {
       endMs: 34_000,
       style: 'Preview',
       marginVertical: 118,
-      text: '{\\an8}La la la',
+      text: '{\\an8}\u00B7\u00B7\u00B7\u00B7 La la la',
     });
   });
 
