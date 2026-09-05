@@ -22,6 +22,8 @@ const CENTISECOND_MS = 10;
 const MULTI_LINE_LINE_HEIGHT_PX = 22; // approximate rendered line height at fontSize 28
 const PRE_SWEEP_DOT_CHAR = '\u00B7';
 const PRE_SWEEP_DOT_COUNT = 4;
+const PROGRESS_BAR_HEIGHT_PX = 24;
+const PROGRESS_BAR_RADIUS_PX = 8;
 /** Hard cap on maxPreviewLines; keeps the multi-line preset's row stack to a sane, readable size. */
 const MAX_PREVIEW_LINES_CAP = 8;
 
@@ -261,7 +263,10 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   if (options.interlude.trailingLyricDurationMs !== undefined) {
     assertNonNegativeSafeInteger(options.interlude.trailingLyricDurationMs, 'interlude.trailingLyricDurationMs');
   }
-  if (!['none', 'text', 'countdown'].includes(options.interlude.strategy)) {
+  if (options.interlude.blankGapMs !== undefined) {
+    assertNonNegativeSafeInteger(options.interlude.blankGapMs, 'interlude.blankGapMs');
+  }
+  if (!['none', 'text', 'countdown', 'progress-bar'].includes(options.interlude.strategy)) {
     throw new RangeError(`interlude.strategy is invalid: ${String(options.interlude.strategy)}`);
   }
   if (options.interlude.style !== undefined && !/^[^,\r\n]+$/.test(options.interlude.style)) {
@@ -427,6 +432,51 @@ function effectiveSungStartMs(occurrence: NormalizedLyrics['occurrences'][number
   return firstSegment ? occurrence.startMs + firstSegment.timeMs : occurrence.startMs;
 }
 
+// Real stretches where nothing is genuinely being sung, long enough to warrant an interlude —
+// mirrors addInterludeEvents' own gap detection, but checks each occurrence's actual first-sung-word
+// timing rather than its (possibly pre-swept, dot-prefixed) display start, since a count-in can
+// visually paper over a real gap without the song itself having stopped. Used to tell a row merely
+// being unused for a while (a rotation/row-count artifact) apart from an actual pause in the song,
+// since with more than one row those can diverge: other rows may keep the screen busy throughout.
+function computeQuietGaps(
+  lyricOccurrences: Array<{ event: AssEvent; occurrence: NormalizedLyrics['occurrences'][number] }>,
+  minGapMs: number,
+): Array<{ startMs: number; endMs: number }> {
+  const gaps: Array<{ startMs: number; endMs: number }> = [];
+  let latestActiveEndMs = 0;
+  for (const { event, occurrence } of lyricOccurrences) {
+    const sungStartMs = effectiveSungStartMs(occurrence);
+    if (sungStartMs - latestActiveEndMs >= minGapMs) {
+      gaps.push({ startMs: latestActiveEndMs, endMs: sungStartMs });
+    }
+    latestActiveEndMs = Math.max(latestActiveEndMs, event.endMs);
+  }
+  return gaps;
+}
+
+// Highest endMs a same-row lingering extension may reach without spilling into a real quiet gap.
+// A row's own idle window can be much wider than any actual pause within it (other rows may have
+// kept the screen busy for most of that window, with only its tail overlapping real silence), so
+// blocking lingering outright on any overlap would wrongly suppress it for that entire window; the
+// correct ceiling is the start of the earliest overlapping quiet gap, not an all-or-nothing block.
+function quietGapCeilingMs(startMs: number, endMs: number, quietGaps: Array<{ startMs: number; endMs: number }>): number {
+  let ceiling = Number.POSITIVE_INFINITY;
+  for (const gap of quietGaps) {
+    if (gap.startMs < endMs && gap.endMs > startMs) {
+      ceiling = Math.min(ceiling, gap.startMs);
+    }
+  }
+  return ceiling;
+}
+
+// Drawing-mode (\p1) path for a rounded rectangle, local origin at its own top-left corner.
+function roundedRectPath(width: number, height: number, radius: number): string {
+  const r = radius;
+  return `m ${r} 0 l ${width - r} 0 b ${width} 0 ${width} 0 ${width} ${r} l ${width} ${height - r} `
+    + `b ${width} ${height} ${width} ${height} ${width - r} ${height} l ${r} ${height} `
+    + `b 0 ${height} 0 ${height} 0 ${height - r} l 0 ${r} b 0 0 0 0 ${r} 0`;
+}
+
 function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options: ResolvedPlanOptions): void {
   const interlude = options.interlude;
   if (!interlude || interlude.strategy === 'none') {
@@ -445,6 +495,34 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
         const style = interlude.style ?? INTERLUDE_STYLE_NAME;
         if (interlude.strategy === 'text') {
           events.push({ layer: 0, startMs, endMs, style, text: DEFAULT_INTERLUDE_TEXT });
+        } else if (interlude.strategy === 'progress-bar') {
+          const barLeft = options.layout.marginLeft;
+          const barWidth = options.layout.resolutionX - options.layout.marginLeft - options.layout.marginRight;
+          const barHeight = Math.min(PROGRESS_BAR_HEIGHT_PX, options.layout.resolutionY);
+          const barTop = Math.round((options.layout.resolutionY - barHeight) / 2);
+          const radius = Math.max(0, Math.min(PROGRESS_BAR_RADIUS_PX, barHeight / 2, barWidth / 2));
+          const path = roundedRectPath(barWidth, barHeight, radius);
+          const interludeStyleOptions = options.styles.interlude ?? {};
+          const trackColor = assColorFromHex(interludeStyleOptions.secondaryColor ?? '#808080');
+          const fillColor = assColorFromHex(interludeStyleOptions.primaryColor ?? '#FFFFFF');
+          const borderColor = assColorFromHex(interludeStyleOptions.outlineColor ?? '#000000');
+          events.push({
+            layer: 0,
+            startMs,
+            endMs,
+            style,
+            text: `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${trackColor}\\3c${borderColor}}${path}{\\p0}`,
+          });
+          events.push({
+            layer: 1,
+            startMs,
+            endMs,
+            style,
+            text: `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${fillColor}\\3c${borderColor}`
+              + `\\clip(${barLeft},${barTop},${barLeft},${barTop + barHeight})`
+              + `\\t(0,${endMs - startMs},\\clip(${barLeft},${barTop},${barLeft + barWidth},${barTop + barHeight}))}`
+              + `${path}{\\p0}`,
+          });
         } else {
           for (let countdownStartMs = startMs; countdownStartMs < endMs; countdownStartMs += 1000) {
             const countdownEndMs = Math.min(countdownStartMs + 1000, endMs);
@@ -548,6 +626,18 @@ export function planEvents(
     const sameRowPredecessorIndex: Array<number | undefined> = new Array(lyricOccurrences.length);
     const sameRowSuccessorIndex: Array<number | undefined> = new Array(lyricOccurrences.length);
     const lastIndexForRow: Array<number | undefined> = new Array(rowCount).fill(undefined);
+    // A row being unused for a while isn't necessarily a pause in the song — other rows may keep
+    // the screen busy throughout — so lingering is only skipped where a real, song-wide quiet gap
+    // overlaps, not merely because this row's own next occupant happens to be a long way off.
+    // Gated on blankGapMs (falling back to, and clamped by, minGapMs) rather than minGapMs alone,
+    // so a real gap too short to warrant a full Interlude can still stop rows from lingering across
+    // it; the clamp keeps a blankGapMs inherited from defaults harmless when a caller lowers minGapMs.
+    const quietGaps = options.interlude !== undefined && options.interlude.strategy !== 'none'
+      ? computeQuietGaps(
+        lyricOccurrences,
+        Math.min(options.interlude.blankGapMs ?? options.interlude.minGapMs, options.interlude.minGapMs),
+      )
+      : [];
     let rotation = 0;
     let screenBusyUntilMs = -Infinity;
     for (const [index, { event, occurrence }] of lyricOccurrences.entries()) {
@@ -562,11 +652,9 @@ export function planEvents(
         if (predecessorIndex !== undefined) {
           const predecessorEndMs = lyricOccurrences[predecessorIndex].event.endMs;
           const gapMs = naturalAppearanceMs - predecessorEndMs;
-          const isLongPause = options.interlude !== undefined
-            && options.interlude.strategy !== 'none'
-            && gapMs >= options.interlude.minGapMs;
-          const lingeredEndMs = gapMs > 0 && !isLongPause && options.lingerMaxMs > 0
-            ? predecessorEndMs + Math.min(gapMs, options.lingerMaxMs)
+          const lingerCeilingMs = quietGapCeilingMs(predecessorEndMs, naturalAppearanceMs, quietGaps);
+          const lingeredEndMs = gapMs > 0 && options.lingerMaxMs > 0
+            ? Math.min(predecessorEndMs + Math.min(gapMs, options.lingerMaxMs), lingerCeilingMs)
             : predecessorEndMs;
           predecessorCoverageMs = Math.max(predecessorCoverageMs, lingeredEndMs);
         }
@@ -646,11 +734,9 @@ export function planEvents(
         }
         const current = lyricOccurrences[index].event;
         const gapMs = rowNeededAtMs[successorIndex] - current.endMs;
-        const isLongPause = options.interlude !== undefined
-          && options.interlude.strategy !== 'none'
-          && gapMs >= options.interlude.minGapMs;
-        if (gapMs > 0 && !isLongPause) {
-          current.endMs += Math.min(gapMs, options.lingerMaxMs);
+        if (gapMs > 0) {
+          const lingerCeilingMs = quietGapCeilingMs(current.endMs, rowNeededAtMs[successorIndex], quietGaps);
+          current.endMs = Math.min(current.endMs + Math.min(gapMs, options.lingerMaxMs), lingerCeilingMs);
         }
       }
     }

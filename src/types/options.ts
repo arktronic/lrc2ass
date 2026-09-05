@@ -30,11 +30,18 @@ export interface NormalizeResult {
 
 export interface InterludeOptions {
   minGapMs: number;
-  strategy: 'none' | 'text' | 'countdown';
+  strategy: 'none' | 'text' | 'countdown' | 'progress-bar';
   style?: string;
   marginMs?: number;
   /** Time a lyric remains visible after its start, or its final enhanced segment start. */
   trailingLyricDurationMs?: number;
+  /**
+   * Multi-line preset: a real gap at least this long (but shorter than minGapMs, so no Interlude
+   * appears) still clears every row instead of letting them linger across it. Values above
+   * minGapMs are clamped down to it (a no-op), so an inherited default can't conflict with a
+   * caller-lowered minGapMs.
+   */
+  blankGapMs?: number;
 }
 
 export interface LayoutOptions {

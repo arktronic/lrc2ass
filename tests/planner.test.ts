@@ -685,6 +685,114 @@ describe('planEvents', () => {
       const first = document.events.find((event) => event.text.endsWith('First'));
       expect(first?.endMs).toBe(1_000);
     });
+
+    it('lingers past a row-local gap that isn\'t a real song-wide pause (other rows keep the screen busy)', () => {
+      // 3 rows (A/D/E-F cycle row0, B/F cycle row1, C cycles row2). A small real gap before "E"
+      // (4000->5010) triggers a row-reset that diverts what would've been row1's turn to row0
+      // instead, delaying "B"'s own row1 successor ("F") well past lingerMaxMs — a rotation
+      // artifact, not an actual pause: every gap between consecutive occurrences here stays under
+      // minGapMs, so nothing here would ever actually become an Interlude.
+      const rowSkipFixture: NormalizedLyrics = {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'A' },
+          { startMs: 1_000, endMs: 2_000, text: 'B' },
+          { startMs: 2_000, endMs: 3_000, text: 'C' },
+          { startMs: 3_000, endMs: 4_000, text: 'D' },
+          { startMs: 5_010, endMs: 6_010, text: 'E' },
+          { startMs: 6_010, endMs: 7_010, text: 'F' },
+        ],
+      };
+
+      const document = planEvents(rowSkipFixture, {
+        ...options,
+        preset: 'multi-line',
+        maxPreviewLines: 2,
+        previewLeadMs: 0,
+        lingerMaxMs: 3_000,
+        interlude: { minGapMs: 4_000, strategy: 'text' },
+      });
+
+      const b = document.events.find((event) => event.text.endsWith('B'));
+      expect(b?.endMs).toBe(5_000);
+    });
+
+    it('does not linger across a real gap masked by a large pre-sweep count-in delay', () => {
+      // "C" has a plausible (small) bracket timestamp, but its enhanced segment defers its actual
+      // first sung word another 6500ms out (a big count-in, same shape as an enhanced-LRC line
+      // whose line tag arrives well before its first real word). The gap as measured by C's own
+      // *display* start (bracket + segment offset - mainLinePreRollMs) is only 7500ms - under the
+      // 8000ms minGapMs - but the real gap (to its actual first sung word) is 8500ms, and should
+      // still be recognized and stop "A" from lingering across it.
+      const preSweepMaskedFixture: NormalizedLyrics = {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'A' },
+          {
+            startMs: 3_000,
+            endMs: 10_500,
+            text: 'C',
+            segments: [{ text: 'C', timeMs: 6_500, location: { line: 1, column: 1 } }],
+          },
+        ],
+      };
+
+      const document = planEvents(preSweepMaskedFixture, {
+        ...options,
+        preset: 'multi-line',
+        maxPreviewLines: 1,
+        previewLeadMs: 0,
+        lingerMaxMs: 5_000,
+        interlude: { minGapMs: 8_000, strategy: 'text' },
+      });
+
+      const a = document.events.find((event) => event.text.endsWith('A'));
+      expect(a?.endMs).toBe(1_000);
+    });
+
+    describe('blankGapMs', () => {
+      const preSweepFixture: NormalizedLyrics = {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'A' },
+          {
+            startMs: 2_000,
+            endMs: 7_500,
+            text: 'C',
+            segments: [{ text: 'C', timeMs: 3_000, location: { line: 1, column: 1 } }],
+          },
+        ],
+      };
+      // The real gap here (A's end at 1000 to C's actual sung start at 5000) is 4000ms - real, but
+      // short of the 8000ms minGapMs, so no Interlude appears either way.
+
+      it('lingers across a real gap shorter than minGapMs when blankGapMs is unset', () => {
+        const document = planEvents(preSweepFixture, {
+          ...options,
+          preset: 'multi-line',
+          maxPreviewLines: 1,
+          previewLeadMs: 0,
+          mainLinePreRollMs: 0,
+          lingerMaxMs: 5_000,
+          interlude: { minGapMs: 8_000, strategy: 'text' },
+        });
+
+        const a = document.events.find((event) => event.text.endsWith('A'));
+        expect(a?.endMs).toBe(5_000);
+      });
+
+      it('clears all rows instead of lingering once a real gap reaches blankGapMs, even below minGapMs', () => {
+        const document = planEvents(preSweepFixture, {
+          ...options,
+          preset: 'multi-line',
+          maxPreviewLines: 1,
+          previewLeadMs: 0,
+          mainLinePreRollMs: 0,
+          lingerMaxMs: 5_000,
+          interlude: { minGapMs: 8_000, strategy: 'text', blankGapMs: 3_000 },
+        });
+
+        const a = document.events.find((event) => event.text.endsWith('A'));
+        expect(a?.endMs).toBe(1_000);
+      });
+    });
   });
 
   it('prepends a fad tag to every event when fadeInMs/fadeOutMs are set', () => {
@@ -782,6 +890,45 @@ describe('planEvents', () => {
       { layer: 0, startMs: 2_000, endMs: 3_000, style: 'Interlude', text: '3' },
       { layer: 0, startMs: 3_000, endMs: 4_000, style: 'Interlude', text: '2' },
       { layer: 0, startMs: 4_000, endMs: 5_000, style: 'Interlude', text: '1' },
+    ]);
+  });
+
+  it('draws a track and animated fill event for the progress-bar interlude strategy', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 5_000, endMs: 6_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 3_000, marginMs: 100, strategy: 'progress-bar' },
+    });
+
+    // layout: resolutionX 384, marginLeft/Right 10 -> barLeft 10, barWidth 364; resolutionY 288,
+    // barHeight 24 -> barTop 132; radius clamps to 8. Single-line preset interlude colors:
+    // primaryColor #FFFFFF (fill), secondaryColor #808080 (track), outlineColor #000000 (border).
+    const path = 'm 8 0 l 356 0 b 364 0 364 0 364 8 l 364 16 b 364 24 364 24 356 24 l 8 24 '
+      + 'b 0 24 0 24 0 16 l 0 8 b 0 0 0 0 8 0';
+
+    expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([
+      {
+        layer: 0,
+        startMs: 1_100,
+        endMs: 4_900,
+        style: 'Interlude',
+        text: `{\\p1\\an7\\pos(10,132)\\shad0\\1c&H00808080&\\3c&H00000000&}${path}{\\p0}`,
+      },
+      {
+        layer: 1,
+        startMs: 1_100,
+        endMs: 4_900,
+        style: 'Interlude',
+        text: '{\\p1\\an7\\pos(10,132)\\shad0\\1c&H00FFFFFF&\\3c&H00000000&'
+          + '\\clip(10,132,10,156)\\t(0,3800,\\clip(10,132,374,156))}'
+          + `${path}{\\p0}`,
+      },
     ]);
   });
 

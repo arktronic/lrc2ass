@@ -14,9 +14,10 @@ export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
   lingerMaxMs: 5000,
   interlude: {
     minGapMs: 8000,
-    strategy: 'text',
+    strategy: 'progress-bar',
     marginMs: 500,
     trailingLyricDurationMs: 5000,
+    blankGapMs: 4000,
   },
   layout: {
     resolutionX: 384,
