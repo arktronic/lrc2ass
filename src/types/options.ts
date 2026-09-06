@@ -62,6 +62,13 @@ export interface LayoutOptions {
   marginVertical: number;
   /** Row pitch (px) between the multi-line preset's rows; unused by single-line. */
   rowHeightPx: number;
+  /**
+   * Multi-line preset: shared alignment for every row (independent of styles.lyrics/preview
+   * alignment, which only affect other style fields). Must be top or bottom (1-3 or 7-9); middle
+   * alignments ignore MarginV, so distinct rows would collapse onto the same vertical position.
+   * Defaults to the preview style's alignment.
+   */
+  rowAlignment?: AssAlignment;
 }
 
 /** High-level visual settings for a generated ASS style. Colors use `#RRGGBB`. */

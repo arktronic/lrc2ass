@@ -268,6 +268,9 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   if (!Number.isSafeInteger(options.layout.rowHeightPx) || options.layout.rowHeightPx <= 0) {
     throw new RangeError(`layout.rowHeightPx must be a positive safe integer, received ${options.layout.rowHeightPx}`);
   }
+  if (options.layout.rowAlignment !== undefined) {
+    assertAlignment(options.layout.rowAlignment, 'layout.rowAlignment');
+  }
   if (PLAN_PRESETS[options.preset].showPreview) {
     const rowCount = options.maxPreviewLines + 1;
     const rowBlockHeight = rowCount * options.layout.rowHeightPx;
@@ -277,6 +280,14 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
         + `${options.layout.rowHeightPx} = ${rowBlockHeight}) must be strictly less than layout.resolutionY `
         + `(an exact fit would produce a top row MarginV of 0, which ASS treats as "no override"), `
         + `received ${options.layout.resolutionY}`,
+      );
+    }
+    const rowAlignment = options.layout.rowAlignment ?? options.styles.preview?.alignment ?? options.layout.alignment;
+    if (rowAlignment >= 4 && rowAlignment <= 6) {
+      throw new RangeError(
+        `layout.rowAlignment must be a top or bottom ASS alignment (1-3 or 7-9); middle alignments `
+        + `(4-6) ignore MarginV, so distinct rows would collapse onto the same vertical position, `
+        + `received ${rowAlignment}`,
       );
     }
   }
@@ -642,7 +653,8 @@ export function planEvents(
   const rowCount = options.maxPreviewLines + 1;
   const rowBlockTopMargin = computeRowBlockTopMargin(options.layout.resolutionY, options.layout.rowHeightPx, rowCount);
   // ASS's alignment values can't give each row its own anchor edge, so every row shares one
-  // alignment (the preview style's) and gets its own MarginV set per-event instead.
+  // alignment and gets its own MarginV set per-event instead.
+  const rowAlignment = options.layout.rowAlignment ?? previewStyle.alignment;
   const rowMarginForIndex = (index: number): number =>
     rowBlockTopMargin + (index % rowCount) * options.layout.rowHeightPx;
 
@@ -652,13 +664,24 @@ export function planEvents(
     quantizeBoundary(Math.max(occurrence.startMs, effectiveSungStartMs(occurrence) - options.mainLinePreRollMs)),
   );
 
+  // Deferred starts can invert the source order, so the chronological successor (needed by
+  // lyricEndMs below to judge interlude room) isn't always the next source-array occurrence.
+  const chronologicalOrder = deferredStarts
+    .map((_, index) => index)
+    .sort((left, right) => deferredStarts[left] - deferredStarts[right]);
+  const nextChronologicalStartMs: Array<number | undefined> = new Array(deferredStarts.length);
+  for (const [position, sourceIndex] of chronologicalOrder.entries()) {
+    const nextSourceIndex = chronologicalOrder[position + 1];
+    nextChronologicalStartMs[sourceIndex] = nextSourceIndex !== undefined ? deferredStarts[nextSourceIndex] : undefined;
+  }
+
   // Running max of all preceding occurrences' endMs (not just the immediately preceding one), used
   // by the pre-sweep gate below since overlapping lines can make an earlier occurrence outlast a
   // later, shorter one.
   let latestActiveEndMs = -Infinity;
   for (const [index, occurrence] of normalized.occurrences.entries()) {
     const startMs = deferredStarts[index];
-    const nextStartMs = deferredStarts[index + 1];
+    const nextStartMs = nextChronologicalStartMs[index];
     const endMs = quantizeBoundary(lyricEndMs(occurrence, nextStartMs, options));
     if (endMs <= startMs) {
       latestActiveEndMs = Math.max(latestActiveEndMs, occurrence.endMs);
@@ -752,6 +775,18 @@ export function planEvents(
           predecessorCoverageMs = Math.max(predecessorCoverageMs, lingeredEndMs);
         }
         rotation = naturalAppearanceMs > predecessorCoverageMs ? 0 : rotation + 1;
+        // The above only decides a preferred starting row; it doesn't guarantee that row's last
+        // occupant has actually finished (by real event time, not the linger estimate used above),
+        // so advance past any row still genuinely in use until an actually free one is found.
+        // maxConcurrency <= rowCount (checked above) guarantees one exists within rowCount attempts.
+        for (let attempt = 0; attempt < rowCount; attempt++) {
+          const candidateRow = rotation % rowCount;
+          const occupantIndex = lastIndexForRow[candidateRow];
+          if (occupantIndex === undefined || lyricOccurrences[occupantIndex].event.endMs <= event.startMs) {
+            break;
+          }
+          rotation++;
+        }
       }
       const row = rotation % rowCount;
       effectiveRow[index] = row;
@@ -767,7 +802,7 @@ export function planEvents(
     // preview and current appearance (only its styling swaps in place).
     for (const [index, { event }] of lyricOccurrences.entries()) {
       event.marginVertical = rowMarginForIndex(effectiveRow[index]);
-      event.text = alignmentTag(previewStyle.alignment) + event.text;
+      event.text = alignmentTag(rowAlignment) + event.text;
     }
 
     // Each occurrence's preview window is computed independently (not just one line ahead of
@@ -819,7 +854,7 @@ export function planEvents(
           marginVertical: rowMarginForIndex(effectiveRow[index]),
           // Same row this occurrence's own Lyrics event will use, so it doesn't move when promoted to current.
           // Mirrors its own Lyrics event's pre-sweep dot prefix (static here) so nothing shifts at handoff.
-          text: alignmentTag(previewStyle.alignment)
+          text: alignmentTag(rowAlignment)
             + (showedPreSweep ? PRE_SWEEP_STATIC_PREFIX : '')
             + escapeAssText(occurrence.text),
         };

@@ -536,6 +536,43 @@ describe('planEvents', () => {
     ]);
   });
 
+  it('does not let styles.lyrics.alignment override the multi-line row alignment', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{ startMs: 0, endMs: 1_000, text: 'First' }],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      styles: { lyrics: { alignment: 2 } },
+    });
+
+    const lyricEvent = document.events.find((event) => event.style === 'Lyrics');
+    expect(lyricEvent?.text.startsWith('{\\an8}')).toBe(true);
+  });
+
+  it('uses layout.rowAlignment for multi-line rows when set, overriding the preview style default', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [{ startMs: 0, endMs: 1_000, text: 'First' }],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      layout: { ...options.layout, rowAlignment: 1 },
+    });
+
+    const lyricEvent = document.events.find((event) => event.style === 'Lyrics');
+    expect(lyricEvent?.text.startsWith('{\\an1}')).toBe(true);
+  });
+
+  it('rejects a middle layout.rowAlignment (4-6) for the multi-line preset since MarginV would have no effect', () => {
+    expect(() => planEvents(
+      { occurrences: [] },
+      { ...options, preset: 'multi-line', layout: { ...options.layout, rowAlignment: 5 } },
+    )).toThrow(RangeError);
+  });
+
   it('derives the multi-line rows\' per-event marginVertical from layout.resolutionY and layout.rowHeightPx', () => {
     const normalized: NormalizedLyrics = {
       occurrences: [
@@ -815,6 +852,25 @@ describe('planEvents', () => {
 
     expect(() => planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 }))
       .not.toThrow();
+  });
+
+  it('does not assign a row still occupied by an earlier, longer occurrence even when round-robin would land there', () => {
+    // rowCount 2 (maxPreviewLines: 1). "First" [0, 10_000) outlasts "Second" [1_000, 2_000), so by
+    // the time "Third" [3_000, 4_000) is placed, naive round-robin would land back on "First"'s row
+    // even though "First" is still active there and "Second"'s row is actually free.
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 10_000, text: 'First' },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+        { startMs: 3_000, endMs: 4_000, text: 'Third' },
+      ],
+    };
+
+    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 });
+    const [first, second, third] = document.events.filter((event) => event.style === 'Lyrics');
+
+    expect(third.marginVertical).not.toBe(first.marginVertical);
+    expect(third.marginVertical).toBe(second.marginVertical);
   });
 
   describe('lingerMaxMs', () => {
@@ -1257,6 +1313,31 @@ describe('planEvents', () => {
       style: 'Lyrics',
       text: 'Last line',
     });
+  });
+
+  it('truncates a source-final lyric with trailingLyricDurationMs using its chronological (not source-order) successor', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 6_000,
+          text: 'First',
+          segments: [{ text: 'First', timeMs: 5_000, location: { line: 1, column: 1 } }],
+        },
+        { startMs: 1_000, endMs: 2_000, text: 'Second' },
+      ],
+    };
+
+    // "Second" (source-final) has no leading delay, so its deferredStart (1_000) ends up earlier
+    // than "First"'s (5_000 sung-start - 1_000 mainLinePreRollMs = 4_000) — an inversion. "Second"
+    // is chronologically first and its real successor is "First", not source-order's "undefined".
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 1_000, strategy: 'text', trailingLyricDurationMs: 500 },
+    });
+
+    const second = document.events.find((event) => event.style === 'Lyrics' && event.text === 'Second');
+    expect(second?.endMs).toBe(1_500);
   });
 
   it('does not truncate a lyric with trailingLyricDurationMs when the following gap is below minGapMs', () => {

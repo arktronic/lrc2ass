@@ -64,7 +64,7 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 
 - The planner emits deterministic `Lyrics`, `Preview`, and `Interlude` styles from `PlanStyleOptions`.
 - `multi-line` (default preset) shows the current lyric plus upcoming lines as `Preview` events, each on a permanently-assigned row, so a line's on-screen position never changes when it becomes active. `single-line` shows only the active lyric.
-- Rows share one alignment with a per-event `MarginV` override rather than alternating alignments, since ASS only offers 3 vertical anchor edges — this scales cleanly to any row count.
+- Rows share one alignment (`layout.rowAlignment`, restricted to top/bottom anchors since ASS ignores `MarginV` for middle alignments) with a per-event `MarginV` override rather than alternating alignments — this scales cleanly to any row count.
 - `maxPreviewLines`, `previewLeadMs`, `lingerMaxMs`, and the interlude `minGapMs`/`blankGapMs` thresholds are configurable; see `PlanOptions` for exact semantics and defaults.
 - Interludes support `text`, `countdown`, and `progress-bar` strategies for filling long gaps.
 - `fadeInMs`/`fadeOutMs` fade every event in/out, except at a same-row `Preview`-to-`Lyrics` handoff, so an already-visible line doesn't flicker when it becomes current.
