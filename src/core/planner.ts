@@ -673,9 +673,20 @@ export function planEvents(
     .filter((index) => quantizeBoundary(normalized.occurrences[index].endMs) > deferredStarts[index])
     .sort((left, right) => deferredStarts[left] - deferredStarts[right]);
   const nextChronologicalStartMs: Array<number | undefined> = new Array(deferredStarts.length);
-  for (const [position, sourceIndex] of chronologicalOrder.entries()) {
-    const nextSourceIndex = chronologicalOrder[position + 1];
-    nextChronologicalStartMs[sourceIndex] = nextSourceIndex !== undefined ? deferredStarts[nextSourceIndex] : undefined;
+  // chronologicalOrder can hold several occurrences with the same deferred start (e.g. duet
+  // lines); using the very next entry as a successor would then use a tied sibling's own start as
+  // the gap boundary, so trailingLyricDurationMs would never apply to any but the last tied
+  // member. Walk backward instead, reusing the next strictly-later start across a whole tied group.
+  let nextStrictlyLaterStartMs: number | undefined;
+  let previousStartMs: number | undefined;
+  for (let position = chronologicalOrder.length - 1; position >= 0; position--) {
+    const sourceIndex = chronologicalOrder[position];
+    const startMs = deferredStarts[sourceIndex];
+    if (previousStartMs !== undefined && startMs !== previousStartMs) {
+      nextStrictlyLaterStartMs = previousStartMs;
+    }
+    nextChronologicalStartMs[sourceIndex] = nextStrictlyLaterStartMs;
+    previousStartMs = startMs;
   }
 
   // Running max of all preceding *emitted* events' endMs (not just the immediately preceding one,

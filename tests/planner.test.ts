@@ -1394,6 +1394,28 @@ describe('planEvents', () => {
     expect(first?.endMs).toBe(10_000);
   });
 
+  it('applies trailingLyricDurationMs to every member of a tied deferred-start group, not just the last', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 10_000, text: 'A' },
+        { startMs: 0, endMs: 8_000, text: 'B' },
+        { startMs: 20_000, endMs: 21_000, text: 'C' },
+      ],
+    };
+
+    // A and B share deferredStart 0; each one's real chronological successor is C (20_000), not
+    // its tied sibling's own start (which would make the gap look non-existent and skip clamping).
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 1_000, strategy: 'text', trailingLyricDurationMs: 500 },
+    });
+
+    const a = document.events.find((event) => event.style === 'Lyrics' && event.text === 'A');
+    const b = document.events.find((event) => event.style === 'Lyrics' && event.text === 'B');
+    expect(a?.endMs).toBe(500);
+    expect(b?.endMs).toBe(500);
+  });
+
   it('does not truncate a lyric with trailingLyricDurationMs when the following gap is below minGapMs', () => {
     const normalized: NormalizedLyrics = {
       occurrences: [
