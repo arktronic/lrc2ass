@@ -291,6 +291,48 @@ describe('planEvents', () => {
     expect(second.text).toBe('{\\kf50}{\\kf100}Second');
   });
 
+  it('does not show a pre-sweep dot count-in when an earlier, longer-overlapping line is still active', () => {
+    const [, , third] = planEvents({
+      occurrences: [
+        { startMs: 0, endMs: 10_000, text: 'First' },
+        {
+          startMs: 1_000,
+          endMs: 2_000,
+          text: 'Second',
+          segments: [{ text: 'Second', timeMs: 0, location: { line: 1, column: 1 } }],
+        },
+        {
+          startMs: 8_000,
+          endMs: 9_000,
+          text: 'Third',
+          segments: [{ text: 'Third', timeMs: 500, location: { line: 1, column: 1 } }],
+        },
+      ],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    // Gap from Second's endMs (2_000) to Third's sung start (8_500) is 6_500ms, meeting
+    // mainLinePreRollMs, but First (ending at 10_000) is still active at 8_500, so there's no real gap.
+    expect(third.text).toBe('{\\kf50}{\\kf50}Third');
+  });
+
+  it('falls back to the plain leading tag when the gap since the previous line qualifies but the line\'s own leading duration is too short for 4 dots', () => {
+    const [, second] = planEvents({
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        {
+          startMs: 5_000,
+          endMs: 6_000,
+          text: 'Second',
+          segments: [{ text: 'Second', timeMs: 10, location: { line: 1, column: 1 } }],
+        },
+      ],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    // Gap from First's endMs (1_000) to Second's sung start (5_010) is 4_010ms, meeting mainLinePreRollMs,
+    // but Second's own leading duration (10ms) is below the 40ms needed for 4 non-zero-duration dots.
+    expect(second.text).toBe('{\\kf1}{\\kf99}Second');
+  });
+
   it("mirrors a line's pre-sweep dot prefix in its own Preview event so text doesn't shift at handoff", () => {
     const normalized: NormalizedLyrics = {
       occurrences: [
@@ -748,6 +790,33 @@ describe('planEvents', () => {
     expect(() => planEvents({ occurrences: [] }, { ...options, maxPreviewLines: 9 })).toThrow(RangeError);
   });
 
+  it('rejects lyric occurrences whose peak concurrency exceeds the available rows', () => {
+    // rowCount 2 (maxPreviewLines: 1), but 3 duet lines share the same [0, 1_000) window.
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 0, endMs: 1_000, text: 'Second' },
+        { startMs: 0, endMs: 1_000, text: 'Third' },
+      ],
+    };
+
+    expect(() => planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 }))
+      .toThrow(RangeError);
+  });
+
+  it('accepts lyric occurrences whose peak concurrency exactly fills the available rows', () => {
+    // rowCount 2 (maxPreviewLines: 1); only 2 duet lines share the same window, which fits exactly.
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 0, endMs: 1_000, text: 'Second' },
+      ],
+    };
+
+    expect(() => planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 }))
+      .not.toThrow();
+  });
+
   describe('lingerMaxMs', () => {
     // rowCount 2 ("First"/index0 and "Third"/index2 share a row); previewLeadMs is short enough
     // to leave a real gap between "First"'s own endMs and "Third"'s preview, but generous enough
@@ -992,6 +1061,16 @@ describe('planEvents', () => {
       preset: 'multi-line',
       maxPreviewLines: 3,
       layout: { ...options.layout, resolutionY: 50, rowHeightPx: 30 },
+    })).toThrow(RangeError);
+  });
+
+  it('rejects a row block that exactly equals resolutionY (would produce a top row MarginV of 0)', () => {
+    // rowCount 2 * rowHeightPx 30 = 60 == resolutionY 60, an "exact fit" that must still be rejected.
+    expect(() => planEvents({ occurrences: [] }, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 1,
+      layout: { ...options.layout, resolutionY: 60, rowHeightPx: 30 },
     })).toThrow(RangeError);
   });
 

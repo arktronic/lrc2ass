@@ -29,6 +29,9 @@ function hasInterludeRoom(gapMs: number, interlude: InterludeOptions): boolean {
 const CENTISECOND_MS = 10;
 const PRE_SWEEP_DOT_CHAR = '\u00B7';
 const PRE_SWEEP_DOT_COUNT = 4;
+// Below this, one or more dots would be quantized down to a 0cs (instant-fill) tag, breaking the
+// sequential count-in; fall back to the plain empty-syllable tag instead.
+const PRE_SWEEP_MIN_DURATION_MS = PRE_SWEEP_DOT_COUNT * CENTISECOND_MS;
 const PROGRESS_BAR_HEIGHT_PX = 24;
 const PROGRESS_BAR_RADIUS_PX = 8;
 /** Hard cap on maxPreviewLines; keeps the multi-line preset's row stack to a sane, readable size. */
@@ -268,10 +271,12 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   if (PLAN_PRESETS[options.preset].showPreview) {
     const rowCount = options.maxPreviewLines + 1;
     const rowBlockHeight = rowCount * options.layout.rowHeightPx;
-    if (rowBlockHeight > options.layout.resolutionY) {
+    if (rowBlockHeight >= options.layout.resolutionY) {
       throw new RangeError(
         `The multi-line row block (maxPreviewLines + 1 = ${rowCount} rows * layout.rowHeightPx `
-        + `${options.layout.rowHeightPx} = ${rowBlockHeight}) must fit within layout.resolutionY, received ${options.layout.resolutionY}`,
+        + `${options.layout.rowHeightPx} = ${rowBlockHeight}) must be strictly less than layout.resolutionY `
+        + `(an exact fit would produce a top row MarginV of 0, which ASS treats as "no override"), `
+        + `received ${options.layout.resolutionY}`,
       );
     }
   }
@@ -412,7 +417,7 @@ function karaokeText(
     Math.max(eventStartMs, quantizeBoundary(sourceStartMs + renderedSegments[0].timeMs)),
   );
   const leadingDurationMs = firstSegmentStartMs - eventStartMs;
-  const showedPreSweep = leadingDurationMs > 0 && showPreSweep;
+  const showedPreSweep = leadingDurationMs >= PRE_SWEEP_MIN_DURATION_MS && showPreSweep;
   const leadingTag = leadingDurationMs <= 0
     ? ''
     : showedPreSweep
@@ -500,6 +505,25 @@ function computeQuietGaps(
     latestActiveEndMs = Math.max(latestActiveEndMs, event.endMs);
   }
   return gaps;
+}
+
+// Peak number of lyric events simultaneously on screen at once (half-open [startMs, endMs)
+// overlap), independent of row assignment — used to catch inputs (e.g. duet lines sharing a
+// timestamp) that need more rows than maxPreviewLines actually provides, before rotation silently
+// reuses a still-active row.
+function computeMaxConcurrentLyrics(sortedEvents: AssEvent[]): number {
+  const activeEndTimes: number[] = [];
+  let maxConcurrency = 0;
+  for (const event of sortedEvents) {
+    for (let index = activeEndTimes.length - 1; index >= 0; index--) {
+      if (activeEndTimes[index] <= event.startMs) {
+        activeEndTimes.splice(index, 1);
+      }
+    }
+    activeEndTimes.push(event.endMs);
+    maxConcurrency = Math.max(maxConcurrency, activeEndTimes.length);
+  }
+  return maxConcurrency;
 }
 
 // Highest endMs a same-row lingering extension may reach without spilling into a real quiet gap.
@@ -628,19 +652,24 @@ export function planEvents(
     quantizeBoundary(Math.max(occurrence.startMs, effectiveSungStartMs(occurrence) - options.mainLinePreRollMs)),
   );
 
+  // Running max of all preceding occurrences' endMs (not just the immediately preceding one), used
+  // by the pre-sweep gate below since overlapping lines can make an earlier occurrence outlast a
+  // later, shorter one.
+  let latestActiveEndMs = -Infinity;
   for (const [index, occurrence] of normalized.occurrences.entries()) {
     const startMs = deferredStarts[index];
     const nextStartMs = deferredStarts[index + 1];
     const endMs = quantizeBoundary(lyricEndMs(occurrence, nextStartMs, options));
     if (endMs <= startMs) {
+      latestActiveEndMs = Math.max(latestActiveEndMs, occurrence.endMs);
       continue;
     }
 
     // The pre-sweep count-in only earns its keep when there was genuine dead air before this
-    // line; a previous line ending right up against this one's start shouldn't get a flicker.
-    // The very first line has no predecessor, so a leading instrumental gap always counts.
-    const previousEndMs = index > 0 ? normalized.occurrences[index - 1].endMs : -Infinity;
-    const showPreSweep = effectiveSungStartMs(occurrence) - previousEndMs >= options.mainLinePreRollMs;
+    // line; an earlier, longer-overlapping occurrence still being active also suppresses it, not
+    // just the immediately preceding one. The very first line has no predecessor, so a leading
+    // instrumental gap always counts.
+    const showPreSweep = effectiveSungStartMs(occurrence) - latestActiveEndMs >= options.mainLinePreRollMs;
 
     const { text, showedPreSweep } = karaokeText(
       occurrence.text,
@@ -660,6 +689,7 @@ export function planEvents(
     };
     lyricOccurrences.push({ event, occurrence, showedPreSweep });
     events.push(event);
+    latestActiveEndMs = Math.max(latestActiveEndMs, occurrence.endMs);
   }
 
   // Deferred starts can invert the source order (a line with a long leading delay may end up
@@ -679,6 +709,16 @@ export function planEvents(
     const sameRowPredecessorIndex: Array<number | undefined> = new Array(lyricOccurrences.length);
     const sameRowSuccessorIndex: Array<number | undefined> = new Array(lyricOccurrences.length);
     const lastIndexForRow: Array<number | undefined> = new Array(rowCount).fill(undefined);
+
+    const maxConcurrency = computeMaxConcurrentLyrics(lyricOccurrences.map(({ event }) => event));
+    if (maxConcurrency > rowCount) {
+      throw new RangeError(
+        `Up to ${maxConcurrency} lyric lines are on screen at once, which exceeds the ${rowCount} `
+        + `available rows (maxPreviewLines + 1 = ${options.maxPreviewLines} + 1); raise maxPreviewLines `
+        + `or remove the overlapping occurrences.`,
+      );
+    }
+
     // A row being unused for a while isn't necessarily a pause in the song — other rows may keep
     // the screen busy throughout — so lingering is only skipped where a real, song-wide quiet gap
     // overlaps, not merely because this row's own next occupant happens to be a long way off.
