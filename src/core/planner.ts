@@ -2,6 +2,7 @@ import type {
   AssDocument,
   AssEvent,
   AssStyle,
+  InterludeOptions,
   KaraokeEffect,
   LayoutOptions,
   NormalizedLyrics,
@@ -18,6 +19,13 @@ const PREVIEW_STYLE_NAME = 'Preview';
 const INTERLUDE_STYLE_NAME = 'Interlude';
 const DEFAULT_INTERLUDE_MARGIN_MS = 0;
 const DEFAULT_INTERLUDE_TEXT = '♪ Instrumental ♪';
+
+// Whether addInterludeEvents would actually render something for a gap this size, once minGapMs
+// and the margin trimmed from both sides are accounted for.
+function hasInterludeRoom(gapMs: number, interlude: InterludeOptions): boolean {
+  const marginMs = interlude.marginMs ?? DEFAULT_INTERLUDE_MARGIN_MS;
+  return gapMs >= interlude.minGapMs && gapMs - 2 * marginMs > 0;
+}
 const CENTISECOND_MS = 10;
 const PRE_SWEEP_DOT_CHAR = '\u00B7';
 const PRE_SWEEP_DOT_COUNT = 4;
@@ -257,13 +265,15 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   if (!Number.isSafeInteger(options.layout.rowHeightPx) || options.layout.rowHeightPx <= 0) {
     throw new RangeError(`layout.rowHeightPx must be a positive safe integer, received ${options.layout.rowHeightPx}`);
   }
-  const rowCount = options.maxPreviewLines + 1;
-  const rowBlockHeight = rowCount * options.layout.rowHeightPx;
-  if (rowBlockHeight > options.layout.resolutionY) {
-    throw new RangeError(
-      `The multi-line row block (maxPreviewLines + 1 = ${rowCount} rows * layout.rowHeightPx `
-      + `${options.layout.rowHeightPx} = ${rowBlockHeight}) must fit within layout.resolutionY, received ${options.layout.resolutionY}`,
-    );
+  if (PLAN_PRESETS[options.preset].showPreview) {
+    const rowCount = options.maxPreviewLines + 1;
+    const rowBlockHeight = rowCount * options.layout.rowHeightPx;
+    if (rowBlockHeight > options.layout.resolutionY) {
+      throw new RangeError(
+        `The multi-line row block (maxPreviewLines + 1 = ${rowCount} rows * layout.rowHeightPx `
+        + `${options.layout.rowHeightPx} = ${rowBlockHeight}) must fit within layout.resolutionY, received ${options.layout.resolutionY}`,
+      );
+    }
   }
   assertStyleOptions(options.styles.lyrics ?? {}, 'styles.lyrics');
   assertStyleOptions(options.styles.preview ?? {}, 'styles.preview');
@@ -456,7 +466,7 @@ function lyricEndMs(
   const finalSegment = occurrence.segments?.at(-1);
   const anchorMs = finalSegment ? occurrence.startMs + finalSegment.timeMs : occurrence.startMs;
   const clampedEndMs = Math.min(occurrence.endMs, anchorMs + trailingDurationMs);
-  if (nextOccurrenceStartMs - clampedEndMs < options.interlude!.minGapMs) {
+  if (!hasInterludeRoom(nextOccurrenceStartMs - clampedEndMs, options.interlude!)) {
     return occurrence.endMs;
   }
   return clampedEndMs;
@@ -525,7 +535,7 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
   // Starts at 0 so a leading gap before the very first lyric (e.g. an instrumental intro) is detected too.
   let latestActiveEndMs = 0;
   for (const event of lyricEvents) {
-    if (event.startMs - latestActiveEndMs >= interlude.minGapMs) {
+    if (hasInterludeRoom(event.startMs - latestActiveEndMs, interlude)) {
       const startMs = quantizeBoundary(latestActiveEndMs + marginMs);
       const endMs = quantizeBoundary(event.startMs - marginMs);
 
@@ -728,6 +738,10 @@ export function planEvents(
     // rowNeededAtMs[index] records when this occurrence's row starts being needed for it (its own
     // preview start, or its own Lyrics start if no preview shows), used below for lingering.
     const rowNeededAtMs: number[] = new Array(lyricOccurrences.length);
+    // Caps concurrent Preview events across all rows at maxPreviewLines: since previewEndMs is
+    // this occurrence's own (non-decreasing, per the earlier chronological sort) startMs, expired
+    // windows can simply be pruned as we go rather than needing a full interval-scheduling pass.
+    const activePreviewEndTimes: number[] = [];
     for (let index = 1; index < lyricOccurrences.length; index++) {
       const { event, occurrence, showedPreSweep } = lyricOccurrences[index];
       // Before a row's first use, nothing has ever occupied it, but a preview still shouldn't
@@ -737,13 +751,26 @@ export function planEvents(
       const rowFreeAtMs = predecessorIndex !== undefined
         ? lyricOccurrences[predecessorIndex].event.endMs
         : lyricOccurrences[0].event.startMs;
-      const previewStartMs = Math.max(
+      let previewStartMs = Math.max(
         rowFreeAtMs,
         quantizeBoundary(effectiveSungStartMs(occurrence) - options.previewLeadMs),
       );
       const previewEndMs = event.startMs;
+
+      for (let active = activePreviewEndTimes.length - 1; active >= 0; active--) {
+        if (activePreviewEndTimes[active] <= previewStartMs) {
+          activePreviewEndTimes.splice(active, 1);
+        }
+      }
+      while (activePreviewEndTimes.length >= options.maxPreviewLines) {
+        const earliestEndMs = Math.min(...activePreviewEndTimes);
+        previewStartMs = Math.max(previewStartMs, earliestEndMs);
+        activePreviewEndTimes.splice(activePreviewEndTimes.indexOf(earliestEndMs), 1);
+      }
+
       rowNeededAtMs[index] = event.startMs;
       if (previewEndMs > previewStartMs) {
+        activePreviewEndTimes.push(previewEndMs);
         const previewEvent: AssEvent = {
           layer: -1,
           startMs: previewStartMs,

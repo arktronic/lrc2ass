@@ -152,8 +152,8 @@ describe('planEvents', () => {
 
     const [event] = planEvents(normalized, { ...options, karaokeEffect: 'sweep' }).events;
 
-    // Without the fix, unconditionally trimming "Hello "'s trailing space would drop the only
-    // separator between the two segments, serializing as "Helloworld".
+    // A segment's own trailing space is kept as the word separator when the next segment has no
+    // leading space of its own, so adjacent segments don't fuse into one word.
     expect(event.text).toBe('{\\kf5}Hello {\\kf5}world');
   });
 
@@ -184,8 +184,8 @@ describe('planEvents', () => {
       }],
     }, { ...options, karaokeEffect: 'sweep' }).events;
 
-    // Without the fix, the whitespace segment's timeMs (0) would be treated as the first sung word,
-    // so the 500ms delay to "Hello" would render as one plain empty syllable instead of pre-sweep dots.
+    // A whitespace-only leading segment is padding, not the first sung word, so its own timeMs (0)
+    // is not used as the sung-start reference for pre-sweep gating.
     expect(event.text).toBe('{\\kf13}\u00B7{\\kf12}\u00B7{\\kf13}\u00B7{\\kf12}\u00B7 {\\kf150}Hello');
   });
 
@@ -202,8 +202,8 @@ describe('planEvents', () => {
       }],
     }, { ...options, karaokeEffect: 'sweep' }).events;
 
-    // Without the fix, effectiveSungStartMs would read the padding segment's timeMs (0), so the
-    // 15_000ms delay to "La la la" would never trigger deferral (event would start at 0 instead).
+    // effectiveSungStartMs skips a whitespace-only leading segment, so the 15_000ms delay to the
+    // first real word still triggers deferral.
     expect(event.startMs).toBe(14_000);
     expect(event.text).toBe('{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf500}La la la');
   });
@@ -252,9 +252,8 @@ describe('planEvents', () => {
 
     expect(second?.startMs).toBe(5_000);
     expect(first?.startMs).toBe(9_000);
-    // Without the fix, addInterludeEvents would scan "First" (startMs 9_000) before "Second"
-    // (startMs 5_000) and emit a leading interlude spanning roughly [0, 9_000] - overlapping
-    // "Second"'s own [5_000, 8_000] span - instead of the correct gap before "Second" alone.
+    // addInterludeEvents scans lyrics in chronological (deferred-start) order, so it only fills the
+    // gap before "Second" and never overlaps "Second"'s own [5_000, 8_000] span.
     expect(interlude).toEqual([{ layer: 0, startMs: 0, endMs: 5_000, style: 'Interlude', text: '\u266A Instrumental \u266A' }]);
   });
 
@@ -617,6 +616,31 @@ describe('planEvents', () => {
     expect(thirdPreview?.startMs).toBe(1_000);
   });
 
+  it('caps concurrent Preview events at maxPreviewLines even when independent rows would each qualify', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        { startMs: 5_000, endMs: 6_000, text: 'Second' },
+        { startMs: 5_000, endMs: 6_000, text: 'Third' },
+      ],
+    };
+
+    // "First" ending early frees row 0 for "Second" well before its own natural appearance (3_000),
+    // and row 1 (never used before) has no predecessor to gate "Third" either - so, uncapped, both
+    // would preview from t=3_000 on separate rows despite maxPreviewLines: 1.
+    const document = planEvents(normalized, {
+      ...options, preset: 'multi-line', maxPreviewLines: 1, previewLeadMs: 2_000,
+    });
+
+    const previewEvents = document.events.filter((event) => event.style === 'Preview');
+    expect(previewEvents).toEqual([
+      { layer: -1, startMs: 3_000, endMs: 5_000, style: 'Preview', marginVertical: 114, text: '{\\an8}Second' },
+    ]);
+
+    const third = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Third'));
+    expect(third?.startMs).toBe(5_000);
+  });
+
   it('resets the row rotation to the top row after a genuine full-blank gap', () => {
     const normalized: NormalizedLyrics = {
       occurrences: [
@@ -965,9 +989,19 @@ describe('planEvents', () => {
     })).toThrow(RangeError);
     expect(() => planEvents({ occurrences: [] }, {
       ...options,
+      preset: 'multi-line',
       maxPreviewLines: 3,
       layout: { ...options.layout, resolutionY: 50, rowHeightPx: 30 },
     })).toThrow(RangeError);
+  });
+
+  it('does not gate the row-block-height check on single-line, since rowHeightPx/maxPreviewLines are unused there', () => {
+    expect(() => planEvents({ occurrences: [] }, {
+      ...options,
+      preset: 'single-line',
+      maxPreviewLines: 3,
+      layout: { ...options.layout, resolutionY: 50, rowHeightPx: 30 },
+    })).not.toThrow();
   });
 
   it('adds buffered text and countdown interludes', () => {
@@ -1174,5 +1208,38 @@ describe('planEvents', () => {
       style: 'Lyrics',
       text: 'First line',
     });
+  });
+
+  it('does not truncate a lyric when minGapMs is met but marginMs would leave no interlude window', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 7_000,
+          text: 'First line',
+          segments: [
+            { text: 'First ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'line', timeMs: 5_000, location: { line: 1, column: 7 } },
+          ],
+        },
+        { startMs: 9_500, endMs: 11_000, text: 'Second line' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: {
+        minGapMs: 3_000, marginMs: 2_000, strategy: 'text', trailingLyricDurationMs: 1_500,
+      },
+    });
+
+    expect(document.events).toContainEqual({
+      layer: 0,
+      startMs: 0,
+      endMs: 7_000,
+      style: 'Lyrics',
+      text: 'First line',
+    });
+    expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([]);
   });
 });
