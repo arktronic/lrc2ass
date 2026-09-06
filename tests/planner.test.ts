@@ -315,6 +315,35 @@ describe('planEvents', () => {
     expect(third.text).toBe('{\\kf50}{\\kf50}Third');
   });
 
+  it('does not let an occurrence that never becomes visible suppress the next line\'s pre-sweep', () => {
+    const events = planEvents({
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'First' },
+        {
+          // Deferred to startMs 3_000 (2_000 sung-start delay - 1_000 mainLinePreRollMs) by its own
+          // segment timing, past its own endMs (1_400) — this occurrence is skipped and never shown.
+          startMs: 1_000,
+          endMs: 1_400,
+          text: 'Collapsed',
+          segments: [{ text: 'Collapsed', timeMs: 3_000, location: { line: 1, column: 1 } }],
+        },
+        {
+          startMs: 1_500,
+          endMs: 3_000,
+          text: 'Third',
+          segments: [{ text: 'Third', timeMs: 500, location: { line: 1, column: 1 } }],
+        },
+      ],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    // Gap from First's endMs (1_000, the last actually-shown line) to Third's sung start (2_000) is
+    // exactly mainLinePreRollMs (1_000), so Third should get a pre-sweep dot count-in. Using the
+    // never-shown "Collapsed" occurrence's own endMs (1_400) instead would shrink the gap to 600ms
+    // and wrongly suppress it.
+    const third = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Third'));
+    expect(third?.text).toContain('\u00B7');
+  });
+
   it('falls back to the plain leading tag when the gap since the previous line qualifies but the line\'s own leading duration is too short for 4 dots', () => {
     const [, second] = planEvents({
       occurrences: [

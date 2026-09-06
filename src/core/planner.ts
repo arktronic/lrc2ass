@@ -675,16 +675,16 @@ export function planEvents(
     nextChronologicalStartMs[sourceIndex] = nextSourceIndex !== undefined ? deferredStarts[nextSourceIndex] : undefined;
   }
 
-  // Running max of all preceding occurrences' endMs (not just the immediately preceding one), used
-  // by the pre-sweep gate below since overlapping lines can make an earlier occurrence outlast a
-  // later, shorter one.
+  // Running max of all preceding *emitted* events' endMs (not just the immediately preceding one,
+  // and not occurrences collapsed by quantization, which were never actually shown), used by the
+  // pre-sweep gate below since overlapping lines can make an earlier occurrence outlast a later,
+  // shorter one.
   let latestActiveEndMs = -Infinity;
   for (const [index, occurrence] of normalized.occurrences.entries()) {
     const startMs = deferredStarts[index];
     const nextStartMs = nextChronologicalStartMs[index];
     const endMs = quantizeBoundary(lyricEndMs(occurrence, nextStartMs, options));
     if (endMs <= startMs) {
-      latestActiveEndMs = Math.max(latestActiveEndMs, occurrence.endMs);
       continue;
     }
 
@@ -712,7 +712,7 @@ export function planEvents(
     };
     lyricOccurrences.push({ event, occurrence, showedPreSweep });
     events.push(event);
-    latestActiveEndMs = Math.max(latestActiveEndMs, occurrence.endMs);
+    latestActiveEndMs = Math.max(latestActiveEndMs, endMs);
   }
 
   // Deferred starts can invert the source order (a line with a long leading delay may end up
