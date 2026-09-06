@@ -1369,6 +1369,31 @@ describe('planEvents', () => {
     expect(second?.endMs).toBe(1_500);
   });
 
+  it('does not truncate the final visible lyric using a chronological successor that never becomes visible', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 10_000, text: 'First' },
+        {
+          // Deferred to startMs 12_000 (3_000 sung-start delay - 1_000 mainLinePreRollMs) by its
+          // own segment timing, past its own endMs (10_400) — this occurrence is skipped and never
+          // shown, so it must not be treated as "First"'s chronological successor.
+          startMs: 10_000,
+          endMs: 10_400,
+          text: 'Collapsed',
+          segments: [{ text: 'Collapsed', timeMs: 3_000, location: { line: 1, column: 1 } }],
+        },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 1_000, strategy: 'text', trailingLyricDurationMs: 500 },
+    });
+
+    const first = document.events.find((event) => event.style === 'Lyrics' && event.text === 'First');
+    expect(first?.endMs).toBe(10_000);
+  });
+
   it('does not truncate a lyric with trailingLyricDurationMs when the following gap is below minGapMs', () => {
     const normalized: NormalizedLyrics = {
       occurrences: [

@@ -665,9 +665,12 @@ export function planEvents(
   );
 
   // Deferred starts can invert the source order, so the chronological successor (needed by
-  // lyricEndMs below to judge interlude room) isn't always the next source-array occurrence.
+  // lyricEndMs below to judge interlude room) isn't always the next source-array occurrence. Only
+  // occurrences whose own span is non-empty before any trailing-duration clamp (which can only
+  // shrink it further) can end up emitted, so a collapsed one can't be a legitimate successor.
   const chronologicalOrder = deferredStarts
     .map((_, index) => index)
+    .filter((index) => quantizeBoundary(normalized.occurrences[index].endMs) > deferredStarts[index])
     .sort((left, right) => deferredStarts[left] - deferredStarts[right]);
   const nextChronologicalStartMs: Array<number | undefined> = new Array(deferredStarts.length);
   for (const [position, sourceIndex] of chronologicalOrder.entries()) {
