@@ -100,9 +100,9 @@ export interface PlanOptions {
   mainLinePreRollMs: number;
   /** Max lead time before the next lyric's first sung word that a Preview event may appear. */
   previewLeadMs: number;
-  /** Fade-in duration (ms) applied to every event; 0 disables it. */
+  /** Fade-in duration (ms) applied to every event except a Lyrics event handed off from its own Preview; 0 disables it. */
   fadeInMs: number;
-  /** Fade-out duration (ms) applied to every event; 0 disables it. */
+  /** Fade-out duration (ms) applied to every event except a Preview handing off into its own Lyrics event; 0 disables it. */
   fadeOutMs: number;
   /** Multi-line preset: how many upcoming lyrics may be previewed at once (1-8, default 3, i.e. a 4-row layout). Each gets its own permanently-assigned row; more rows are simultaneously populated only when the song's pace brings enough upcoming lines within previewLeadMs at once. */
   maxPreviewLines: number;
