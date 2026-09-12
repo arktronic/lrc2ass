@@ -11,8 +11,7 @@ const DEFAULT_STYLE_FIELDS = {
   spacing: 0,
   angle: 0,
   borderstyle: 1,
-  outline: 2,
-  shadow: 0,
+  outline: 3,
   encoding: 1,
 } as const;
 
@@ -58,7 +57,7 @@ function formatStyle(style: AssDocument['styles'][number]): string {
     DEFAULT_STYLE_FIELDS.angle,
     DEFAULT_STYLE_FIELDS.borderstyle,
     DEFAULT_STYLE_FIELDS.outline,
-    DEFAULT_STYLE_FIELDS.shadow,
+    style.shadow,
     style.alignment,
     style.marginLeft,
     style.marginRight,
@@ -79,7 +78,7 @@ function formatEvent(event: AssDocument['events'][number]): string {
     '',
     0,
     0,
-    0,
+    event.marginVertical ?? 0,
     '',
     event.text,
   ];

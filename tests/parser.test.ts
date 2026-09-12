@@ -50,6 +50,13 @@ describe('parseLrc', () => {
     ]);
   });
 
+  it('collapses and trims whitespace from generators that pad tags with spaces on both sides', () => {
+    const result = parseLrc('[00:00.00] <00:01.00> Foo <00:02.00> bar <00:03.00> baz ', { mode: 'tolerant' });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document.lines[0].text).toBe('Foo bar baz');
+  });
+
   it('removes marker-only enhanced timestamps from lyric text', () => {
     const result = parseLrc('[00:01.00]<00:01.00>', { mode: 'tolerant' });
 

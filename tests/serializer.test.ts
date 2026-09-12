@@ -35,7 +35,7 @@ describe('serializeAss', () => {
       styles: [{
         name: 'Lyrics', fontName: 'Arial', fontSize: 28,
         primaryColor: assColorFromHex('#FFFFFF'), secondaryColor: assColorFromHex('#808080'),
-        outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0),
+        outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0), shadow: 0,
         alignment: 2, marginLeft: 10, marginRight: 10, marginVertical: 10,
       }],
       events: [{ layer: 0, startMs: 0, endMs: 1000, style: 'Lyrics', text: 'hi' }],
@@ -53,7 +53,7 @@ describe('serializeAss', () => {
       styles: [{
         name: 'Lyrics', fontName: 'Arial', fontSize: 28,
         primaryColor: assColorFromHex('#FFFFFF'), secondaryColor: assColorFromHex('#808080'),
-        outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0),
+        outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0), shadow: 0,
         alignment: 2, marginLeft: 10, marginRight: 10, marginVertical: 10,
       }],
       events: [],
@@ -61,15 +61,15 @@ describe('serializeAss', () => {
     const text = serializeAss(document, {});
 
     expect(text).toContain(
-      '[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\nStyle: Lyrics,Arial,28,&H00FFFFFF&,&H00808080&,&H00000000&,&HFF000000&,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1',
+      '[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\nStyle: Lyrics,Arial,28,&H00FFFFFF&,&H00808080&,&H00000000&,&HFF000000&,0,0,0,0,100,100,0,0,1,3,0,2,10,10,10,1',
     );
   });
 
   it('preserves the input order of multiple styles and events', () => {
     const document = makeDocument({
       styles: [
-        { name: 'Lyrics', fontName: 'Arial', fontSize: 28, primaryColor: assColorFromHex('#FFFFFF'), secondaryColor: assColorFromHex('#808080'), outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0), alignment: 2, marginLeft: 10, marginRight: 10, marginVertical: 10 },
-        { name: 'Preview', fontName: 'Arial', fontSize: 24, primaryColor: assColorFromHex('#C0C0C0'), secondaryColor: assColorFromHex('#808080'), outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0), alignment: 8, marginLeft: 10, marginRight: 10, marginVertical: 10 },
+        { name: 'Lyrics', fontName: 'Arial', fontSize: 28, primaryColor: assColorFromHex('#FFFFFF'), secondaryColor: assColorFromHex('#808080'), outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0), shadow: 0, alignment: 2, marginLeft: 10, marginRight: 10, marginVertical: 10 },
+        { name: 'Preview', fontName: 'Arial', fontSize: 24, primaryColor: assColorFromHex('#C0C0C0'), secondaryColor: assColorFromHex('#808080'), outlineColor: assColorFromHex('#000000'), backColor: assColorFromHex('#000000', 0), shadow: 0, alignment: 8, marginLeft: 10, marginRight: 10, marginVertical: 10 },
       ],
       events: [
         { layer: 0, startMs: 0, endMs: 1000, style: 'Lyrics', text: 'one' },

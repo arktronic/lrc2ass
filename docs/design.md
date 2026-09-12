@@ -33,7 +33,7 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Diagnostic fields are public, but diagnostic code strings remain internal until the public API is stabilized.
 - Times use integer milliseconds until conversion to ASS centiseconds.
 - Presets are immutable option sets, not separate conversion paths. Explicit caller options override preset values.
-- Serialization is deterministic. Public models, options, result shapes, presets, and serialized output are compatibility-sensitive.
+- Serialization is deterministic: the same document always serializes to the same text. Presets, defaults, and exact output are expected to evolve and are not a compatibility guarantee — only public model/option/result *shapes* (field names and types) are.
 - libass is the rendering baseline; renderer-specific extensions are initially out of scope.
 
 ## Conversion Rules
@@ -46,10 +46,11 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Handle source overlaps through an explicit `preserve`, `truncate`, or `error` policy.
 - Negative or decreasing effective times fail in strict mode; tolerant mode clamps them and emits diagnostics.
 - Completely untimed lines remain in the model but cannot produce events without caller-supplied timing.
-- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset. The converter does not invent word timing or perform linguistic tokenization.
-- Interlude options define the minimum gap, margins, text/countdown strategy, style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing.
+- Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset, unless a pre-sweep dot count-in is shown instead (see Event Planner Defaults). The converter does not invent word timing or perform linguistic tokenization.
+- A lyric's effective sung-start is its first enhanced (non-whitespace) segment's absolute time (or its own timestamp if plain/segment-less).
+- Interlude options define the minimum gap, margins, strategy (text, countdown, or progress-bar), style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing.
 - Escape lyric text so embedded ASS override syntax cannot execute.
-- The parser accepts documented timestamp forms with flexible hour/minute widths, validates component ranges and safe integer precision, and rejects values outside that range.
+- The parser validates timestamp component ranges and integer precision, rejecting out-of-range values.
 - Public LRC and ASS models are directly editable. Callers who edit them are responsible for preserving their invariants.
 
 ## ASS Output
@@ -61,10 +62,14 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 
 ### Event Planner Defaults
 
-- The planner emits deterministic `Lyrics`, `Preview`, and `Interlude` styles. `PlanStyleOptions` configures font, colors, alignment, and margins for each role; colors use `#RRGGBB` values. A named interlude style is emitted when selected.
-- `single-line` is the default preset and renders active lyrics only. `multi-line` also displays one next strictly later lyric as a non-karaoke `Preview` event from the active group start until that lyric starts. Simultaneous lyrics are active together and do not create duplicate previews.
-- A `text` interlude displays `♪ Instrumental ♪`; a `countdown` interlude emits one-second events labelled with whole seconds remaining.
-- Planner options are validated at runtime and invalid values throw `RangeError`.
+- The planner emits deterministic `Lyrics`, `Preview`, and `Interlude` styles from `PlanStyleOptions`.
+- `multi-line` (default preset) shows the current lyric plus upcoming lines as `Preview` events, each on a permanently-assigned row, so a line's on-screen position never changes when it becomes active. `single-line` shows only the active lyric.
+- Rows share one alignment (`layout.rowAlignment`, restricted to top/bottom anchors since ASS ignores `MarginV` for middle alignments) with a per-event `MarginV` override rather than alternating alignments — this scales cleanly to any row count.
+- `maxPreviewLines`, `previewLeadMs`, `lingerMaxMs`, and the interlude `minGapMs`/`blankGapMs` thresholds are configurable; see `PlanOptions` for exact semantics and defaults.
+- Interludes support `text`, `countdown`, and `progress-bar` strategies for filling long gaps.
+- `fadeInMs`/`fadeOutMs` fade every event in/out, except at a same-row `Preview`-to-`Lyrics` handoff, so an already-visible line doesn't flicker when it becomes current.
+- A pre-sweep dot count-in gives the singer a visible, timed cue for when to start, in place of an inert empty gap.
+- Planner options are validated at runtime; invalid values throw `RangeError`.
 
 ## Configuration Areas
 
