@@ -690,7 +690,6 @@ export function planEvents(
   // duet lines) share the next strictly-later visible start instead of each other.
   const isVisible: boolean[] = new Array(deferredStarts.length).fill(false);
   const resolvedEndMs: number[] = new Array(deferredStarts.length);
-  const nextChronologicalStartMs: Array<number | undefined> = new Array(deferredStarts.length);
   let nextVisibleStartMs: number | undefined;
   let groupHasVisibleMember = false;
   let previousStartMs: number | undefined;
@@ -709,7 +708,6 @@ export function planEvents(
       resolvedEndMs[sourceIndex] = endMs;
       groupHasVisibleMember = true;
     }
-    nextChronologicalStartMs[sourceIndex] = nextVisibleStartMs;
     previousStartMs = startMs;
   }
   const chronologicalOrder = sortedByDeferredStart.filter((index) => isVisible[index]);
