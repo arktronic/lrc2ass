@@ -1,7 +1,5 @@
 # lrc2ass
 
-[![CI](https://github.com/arktronic/lrc2ass/actions/workflows/ci.yml/badge.svg)](https://github.com/arktronic/lrc2ass/actions/workflows/ci.yml)
-
 A TypeScript library and Node.js CLI for converting LRC lyrics into readable, libass-compatible ASS karaoke subtitles.
 
 ## Implemented
@@ -19,15 +17,11 @@ A TypeScript library and Node.js CLI for converting LRC lyrics into readable, li
 
 The dependency-free vanilla JS core is intended for all modern JavaScript runtimes. Planned output is deterministic and targets libass.
 
+See [the design document](docs/design.md) for scope, architecture, and conversion decisions.
+
 ## CLI Usage
 
 ```sh
 lrc2ass input.lrc output.ass
 lrc2ass song.lrc # writes song.ass
 ```
-
-## Status
-
-The project is in early implementation and is not published yet.
-
-See [the design document](docs/design.md) for scope, architecture, and conversion decisions.
