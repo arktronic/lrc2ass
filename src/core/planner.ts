@@ -20,12 +20,6 @@ const INTERLUDE_STYLE_NAME = 'Interlude';
 const DEFAULT_INTERLUDE_MARGIN_MS = 0;
 const DEFAULT_INTERLUDE_TEXT = '♪ Instrumental ♪';
 
-// Whether addInterludeEvents would actually render something for a gap this size, once minGapMs
-// and the margin trimmed from both sides are accounted for.
-function hasInterludeRoom(gapMs: number, interlude: InterludeOptions): boolean {
-  const marginMs = interlude.marginMs ?? DEFAULT_INTERLUDE_MARGIN_MS;
-  return gapMs >= interlude.minGapMs && gapMs - 2 * marginMs > 0;
-}
 const CENTISECOND_MS = 10;
 const PRE_SWEEP_DOT_CHAR = '\u00B7';
 const PRE_SWEEP_DOT_COUNT = 4;
@@ -320,6 +314,24 @@ function quantizeBoundary(timeMs: number): number {
   return Math.round(timeMs / CENTISECOND_MS) * CENTISECOND_MS;
 }
 
+// The actual margin-adjusted, quantized [startMs, endMs) an interlude would occupy between two
+// active spans, or undefined if minGapMs or post-quantization rounding leaves no room to render
+// one. Centralized so a decision to shorten a lyric in anticipation of an interlude can never
+// diverge from what addInterludeEvents will actually emit for that same gap.
+function resolveInterludeBounds(
+  prevEndMs: number,
+  nextStartMs: number,
+  interlude: InterludeOptions,
+): { startMs: number; endMs: number } | undefined {
+  if (nextStartMs - prevEndMs < interlude.minGapMs) {
+    return undefined;
+  }
+  const marginMs = interlude.marginMs ?? DEFAULT_INTERLUDE_MARGIN_MS;
+  const startMs = quantizeBoundary(prevEndMs + marginMs);
+  const endMs = quantizeBoundary(nextStartMs - marginMs);
+  return endMs > startMs ? { startMs, endMs } : undefined;
+}
+
 function escapeAssText(text: string): string {
   return text
     .replaceAll('\\', '\\\\')
@@ -482,7 +494,7 @@ function lyricEndMs(
   const finalSegment = occurrence.segments?.at(-1);
   const anchorMs = finalSegment ? occurrence.startMs + finalSegment.timeMs : occurrence.startMs;
   const clampedEndMs = Math.min(occurrence.endMs, anchorMs + trailingDurationMs);
-  if (!hasInterludeRoom(nextOccurrenceStartMs - clampedEndMs, options.interlude!)) {
+  if (!resolveInterludeBounds(clampedEndMs, nextOccurrenceStartMs, options.interlude!)) {
     return occurrence.endMs;
   }
   return clampedEndMs;
@@ -506,9 +518,15 @@ function computeQuietGaps(
   lyricOccurrences: Array<{ event: AssEvent; occurrence: NormalizedLyrics['occurrences'][number] }>,
   minGapMs: number,
 ): Array<{ startMs: number; endMs: number }> {
+  // Callers sort this input by display start, but differing pre-roll/embedded-delay per
+  // occurrence means that can diverge from actual sung order; re-sort here so a later-displayed
+  // but earlier-sung occurrence can't be skipped past, which would fabricate a gap containing it.
+  const bySungStart = [...lyricOccurrences].sort(
+    (left, right) => effectiveSungStartMs(left.occurrence) - effectiveSungStartMs(right.occurrence),
+  );
   const gaps: Array<{ startMs: number; endMs: number }> = [];
   let latestActiveEndMs = 0;
-  for (const { event, occurrence } of lyricOccurrences) {
+  for (const { event, occurrence } of bySungStart) {
     const sungStartMs = effectiveSungStartMs(occurrence);
     if (sungStartMs - latestActiveEndMs >= minGapMs) {
       gaps.push({ startMs: latestActiveEndMs, endMs: sungStartMs });
@@ -566,58 +584,55 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
     return;
   }
 
-  const marginMs = interlude.marginMs ?? DEFAULT_INTERLUDE_MARGIN_MS;
   // Starts at 0 so a leading gap before the very first lyric (e.g. an instrumental intro) is detected too.
   let latestActiveEndMs = 0;
   for (const event of lyricEvents) {
-    if (hasInterludeRoom(event.startMs - latestActiveEndMs, interlude)) {
-      const startMs = quantizeBoundary(latestActiveEndMs + marginMs);
-      const endMs = quantizeBoundary(event.startMs - marginMs);
+    const bounds = resolveInterludeBounds(latestActiveEndMs, event.startMs, interlude);
 
-      if (endMs > startMs) {
-        const style = interlude.style ?? INTERLUDE_STYLE_NAME;
-        if (interlude.strategy === 'text') {
-          events.push({ layer: 0, startMs, endMs, style, text: DEFAULT_INTERLUDE_TEXT });
-        } else if (interlude.strategy === 'progress-bar') {
-          const barLeft = options.layout.marginLeft;
-          const barWidth = options.layout.resolutionX - options.layout.marginLeft - options.layout.marginRight;
-          const barHeight = Math.min(PROGRESS_BAR_HEIGHT_PX, options.layout.resolutionY);
-          const barTop = Math.round((options.layout.resolutionY - barHeight) / 2);
-          const radius = Math.max(0, Math.min(PROGRESS_BAR_RADIUS_PX, barHeight / 2, barWidth / 2));
-          const path = roundedRectPath(barWidth, barHeight, radius);
-          const interludeStyleOptions = options.styles.interlude ?? {};
-          const trackColor = assColorFromHex(interludeStyleOptions.secondaryColor ?? '#808080');
-          const fillColor = assColorFromHex(interludeStyleOptions.primaryColor ?? '#FFFFFF');
-          const borderColor = assColorFromHex(interludeStyleOptions.outlineColor ?? '#000000');
+    if (bounds) {
+      const { startMs, endMs } = bounds;
+      const style = interlude.style ?? INTERLUDE_STYLE_NAME;
+      if (interlude.strategy === 'text') {
+        events.push({ layer: 0, startMs, endMs, style, text: DEFAULT_INTERLUDE_TEXT });
+      } else if (interlude.strategy === 'progress-bar') {
+        const barLeft = options.layout.marginLeft;
+        const barWidth = options.layout.resolutionX - options.layout.marginLeft - options.layout.marginRight;
+        const barHeight = Math.min(PROGRESS_BAR_HEIGHT_PX, options.layout.resolutionY);
+        const barTop = Math.round((options.layout.resolutionY - barHeight) / 2);
+        const radius = Math.max(0, Math.min(PROGRESS_BAR_RADIUS_PX, barHeight / 2, barWidth / 2));
+        const path = roundedRectPath(barWidth, barHeight, radius);
+        const interludeStyleOptions = options.styles.interlude ?? {};
+        const trackColor = assColorFromHex(interludeStyleOptions.secondaryColor ?? '#808080');
+        const fillColor = assColorFromHex(interludeStyleOptions.primaryColor ?? '#FFFFFF');
+        const borderColor = assColorFromHex(interludeStyleOptions.outlineColor ?? '#000000');
+        events.push({
+          layer: 0,
+          startMs,
+          endMs,
+          style,
+          text: `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${trackColor}\\3c${borderColor}}${path}{\\p0}`,
+        });
+        events.push({
+          layer: 1,
+          startMs,
+          endMs,
+          style,
+          text: `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${fillColor}\\3c${borderColor}`
+            + `\\clip(${barLeft},${barTop},${barLeft},${barTop + barHeight})`
+            + `\\t(0,${endMs - startMs},\\clip(${barLeft},${barTop},${barLeft + barWidth},${barTop + barHeight}))}`
+            + `${path}{\\p0}`,
+        });
+      } else {
+        for (let countdownStartMs = startMs; countdownStartMs < endMs; countdownStartMs += 1000) {
+          const countdownEndMs = Math.min(countdownStartMs + 1000, endMs);
+          const secondsRemaining = Math.ceil((endMs - countdownStartMs) / 1000);
           events.push({
             layer: 0,
-            startMs,
-            endMs,
+            startMs: countdownStartMs,
+            endMs: countdownEndMs,
             style,
-            text: `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${trackColor}\\3c${borderColor}}${path}{\\p0}`,
+            text: String(secondsRemaining),
           });
-          events.push({
-            layer: 1,
-            startMs,
-            endMs,
-            style,
-            text: `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${fillColor}\\3c${borderColor}`
-              + `\\clip(${barLeft},${barTop},${barLeft},${barTop + barHeight})`
-              + `\\t(0,${endMs - startMs},\\clip(${barLeft},${barTop},${barLeft + barWidth},${barTop + barHeight}))}`
-              + `${path}{\\p0}`,
-          });
-        } else {
-          for (let countdownStartMs = startMs; countdownStartMs < endMs; countdownStartMs += 1000) {
-            const countdownEndMs = Math.min(countdownStartMs + 1000, endMs);
-            const secondsRemaining = Math.ceil((endMs - countdownStartMs) / 1000);
-            events.push({
-              layer: 0,
-              startMs: countdownStartMs,
-              endMs: countdownEndMs,
-              style,
-              text: String(secondsRemaining),
-            });
-          }
         }
       }
     }
@@ -692,9 +707,11 @@ export function planEvents(
   // Running max of all preceding *emitted* events' endMs (not just the immediately preceding one,
   // and not occurrences collapsed by quantization, which were never actually shown), used by the
   // pre-sweep gate below since overlapping lines can make an earlier occurrence outlast a later,
-  // shorter one.
+  // shorter one. Walked via chronologicalOrder, not source order, since deferred starts can make
+  // a later source occurrence display before an earlier one.
   let latestActiveEndMs = -Infinity;
-  for (const [index, occurrence] of normalized.occurrences.entries()) {
+  for (const index of chronologicalOrder) {
+    const occurrence = normalized.occurrences[index];
     const startMs = deferredStarts[index];
     const nextStartMs = nextChronologicalStartMs[index];
     const endMs = quantizeBoundary(lyricEndMs(occurrence, nextStartMs, options));

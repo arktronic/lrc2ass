@@ -64,9 +64,10 @@ export interface LayoutOptions {
   rowHeightPx: number;
   /**
    * Multi-line preset: shared alignment for every row (independent of styles.lyrics/preview
-   * alignment, which only affect other style fields). Must be top or bottom (1-3 or 7-9); middle
-   * alignments ignore MarginV, so distinct rows would collapse onto the same vertical position.
-   * Defaults to the preview style's alignment.
+   * alignment when set explicitly, but otherwise falls back to the effective preview alignment,
+   * so an unset rowAlignment still moves with styles.preview.alignment). Must be top or bottom
+   * (1-3 or 7-9); middle alignments ignore MarginV, so distinct rows would collapse onto the same
+   * vertical position. Set explicitly to decouple rows from Preview's alignment.
    */
   rowAlignment?: AssAlignment;
 }

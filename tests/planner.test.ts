@@ -344,6 +344,36 @@ describe('planEvents', () => {
     expect(third?.text).toContain('\u00B7');
   });
 
+  it('gates pre-sweep by chronological (deferred-start) order, not source order, when they invert', () => {
+    // Source order is [X, Y], but X's own embedded delay defers its display (2_000) to chronologically
+    // *after* Y's (500) - the true order is Y, then X. Y is genuinely first (no real predecessor), so
+    // it should get its own pre-sweep count-in; X's real predecessor is Y, and X's sung start (3_000)
+    // lands exactly on Y's endMs (3_000) - zero real gap - so X must not get one. Gating in source
+    // order would process X first with no predecessor at all (wrongly granting it one) and would then
+    // measure Y's gap against X's endMs instead (wrongly denying Y, the true first line, its own).
+    const events = planEvents({
+      occurrences: [
+        {
+          startMs: 500,
+          endMs: 4_000,
+          text: 'X',
+          segments: [{ text: 'X', timeMs: 2_500, location: { line: 1, column: 1 } }],
+        },
+        {
+          startMs: 0,
+          endMs: 3_000,
+          text: 'Y',
+          segments: [{ text: 'Y', timeMs: 1_500, location: { line: 1, column: 1 } }],
+        },
+      ],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    const x = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('X'));
+    const y = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Y'));
+    expect(x?.text).not.toContain('\u00B7');
+    expect(y?.text).toContain('\u00B7');
+  });
+
   it('falls back to the plain leading tag when the gap since the previous line qualifies but the line\'s own leading duration is too short for 4 dots', () => {
     const [, second] = planEvents({
       occurrences: [
@@ -1017,6 +1047,44 @@ describe('planEvents', () => {
       expect(a?.endMs).toBe(1_000);
     });
 
+    it('sorts occurrences by sung start (not display start) when computing quiet gaps, so a later-sung but earlier-displayed line cannot swallow a real gap around an earlier-sung, later-displayed line', () => {
+      // Display order is A, B, Mid, D (B's huge embedded delay defers its display to right after A,
+      // even though it isn't actually sung until 6_500 - after Mid and D). Scanning quiet gaps in
+      // that display order lets B's late sungStart get compared against A's endMs before Mid or D
+      // are considered, fabricating one giant gap (1_000-6_500) that wrongly swallows Mid's real
+      // singing window (4_000-5_000). Mid and D end up sharing a row, and D's own display start
+      // (6_200) falls inside that fabricated gap, so the buggy ceiling collapses all the way back
+      // to 1_000 - shrinking Mid's already-placed endMs from 5_000 down to 1_000, before its own
+      // startMs. Sorting by actual sung start keeps Mid's real gaps separate (1_000-4_000 and
+      // 5_000-6_200), leaving Mid's endMs alone since it borders real quiet gaps on both sides.
+      const fixture: NormalizedLyrics = {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'A' },
+          {
+            startMs: 500,
+            endMs: 8_000,
+            text: 'B',
+            segments: [{ text: 'B', timeMs: 6_000, location: { line: 1, column: 1 } }],
+          },
+          { startMs: 4_000, endMs: 5_000, text: 'Mid' },
+          { startMs: 6_200, endMs: 7_200, text: 'D' },
+        ],
+      };
+
+      const events = planEvents(fixture, {
+        ...options,
+        preset: 'multi-line',
+        maxPreviewLines: 1,
+        previewLeadMs: 0,
+        mainLinePreRollMs: 6_000,
+        lingerMaxMs: 10_000,
+        interlude: { minGapMs: 100, strategy: 'text' },
+      }).events;
+
+      const mid = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Mid'));
+      expect(mid?.endMs).toBe(5_000);
+    });
+
     describe('blankGapMs', () => {
       const preSweepFixture: NormalizedLyrics = {
         occurrences: [
@@ -1475,6 +1543,32 @@ describe('planEvents', () => {
       endMs: 7_000,
       style: 'Lyrics',
       text: 'First line',
+    });
+    expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([]);
+  });
+
+  it('does not truncate a lyric when the raw gap clears minGapMs and margin but quantizing both margin-adjusted boundaries collapses the interlude window', () => {
+    // Raw gap (1_020 - 1_004 = 16ms) clears minGapMs (0) and 2*marginMs (12ms), but each boundary,
+    // once margin-adjusted and rounded to the nearest 10ms, lands on 1_010 - no room left for an
+    // interlude. The truncation decision must see that same rounding collapse, not just the raw gap,
+    // or "First" gets cut short with nothing (no interlude either) to fill the resulting dead air.
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        { startMs: 0, endMs: 1_020, text: 'First' },
+        { startMs: 1_020, endMs: 2_000, text: 'Second' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      mainLinePreRollMs: 0,
+      interlude: {
+        minGapMs: 0, marginMs: 6, strategy: 'text', trailingLyricDurationMs: 1_004,
+      },
+    });
+
+    expect(document.events).toContainEqual({
+      layer: 0, startMs: 0, endMs: 1_020, style: 'Lyrics', text: 'First',
     });
     expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([]);
   });

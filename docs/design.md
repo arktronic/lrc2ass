@@ -47,7 +47,7 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Negative or decreasing effective times fail in strict mode; tolerant mode clamps them and emits diagnostics.
 - Completely untimed lines remain in the model but cannot produce events without caller-supplied timing.
 - Plain lines produce one dialogue event; enhanced segments use a selected standard ASS karaoke effect. A leading enhanced-timestamp gap is encoded as an empty karaoke syllable so timed text begins at its supplied offset, unless a pre-sweep dot count-in is shown instead (see Event Planner Defaults). The converter does not invent word timing or perform linguistic tokenization.
-- A lyric's effective sung-start is its first enhanced segment's absolute time (or its own timestamp if plain/segment-less).
+- A lyric's effective sung-start is its first enhanced (non-whitespace) segment's absolute time (or its own timestamp if plain/segment-less).
 - Interlude options define the minimum gap, margins, strategy (text, countdown, or progress-bar), style, and placement. `trailingLyricDurationMs` limits an enhanced lyric after its final timed segment (or a plain lyric after its start), creating a gap before the next lyric without truncating earlier enhanced timing.
 - Escape lyric text so embedded ASS override syntax cannot execute.
 - The parser validates timestamp component ranges and integer precision, rejecting out-of-range values.
