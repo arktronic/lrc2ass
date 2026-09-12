@@ -9,13 +9,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const execFileAsync = promisify(execFile);
 const binPath = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
 
-async function runBin(execPath: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runBin(
+  execPath: string,
+  args: string[],
+): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, [execPath, ...args]);
     return { code: 0, stdout, stderr };
   } catch (error) {
     const execError = error as ExecFileException & { stdout: string; stderr: string };
-    return { code: typeof execError.code === 'number' ? execError.code : 1, stdout: execError.stdout, stderr: execError.stderr };
+    return {
+      code: typeof execError.code === 'number' ? execError.code : 1,
+      stdout: execError.stdout,
+      stderr: execError.stderr,
+    };
   }
 }
 

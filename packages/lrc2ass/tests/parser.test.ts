@@ -10,7 +10,9 @@ describe('parseLrc', () => {
     expect(result.document.metadata).toEqual({ ar: 'Artist' });
     expect(result.document.lines).toHaveLength(1);
     expect(result.document.lines[0].text).toBe('Hello');
-    expect(result.document.lines[0].timestamps.map((timestamp) => timestamp.timeMs)).toEqual([1230]);
+    expect(result.document.lines[0].timestamps.map((timestamp) => timestamp.timeMs)).toEqual([
+      1230,
+    ]);
   });
 
   it('parses multiple leading timestamps on one line', () => {
@@ -18,7 +20,9 @@ describe('parseLrc', () => {
 
     expect(result.diagnostics).toEqual([]);
     expect(result.document.lines).toHaveLength(1);
-    expect(result.document.lines[0].timestamps.map((timestamp) => timestamp.timeMs)).toEqual([1000, 2345]);
+    expect(result.document.lines[0].timestamps.map((timestamp) => timestamp.timeMs)).toEqual([
+      1000, 2345,
+    ]);
   });
 
   it('keeps bracketed lyric text after a timestamp', () => {
@@ -51,7 +55,9 @@ describe('parseLrc', () => {
   });
 
   it('collapses and trims whitespace from generators that pad tags with spaces on both sides', () => {
-    const result = parseLrc('[00:00.00] <00:01.00> Foo <00:02.00> bar <00:03.00> baz ', { mode: 'tolerant' });
+    const result = parseLrc('[00:00.00] <00:01.00> Foo <00:02.00> bar <00:03.00> baz ', {
+      mode: 'tolerant',
+    });
 
     expect(result.diagnostics).toEqual([]);
     expect(result.document.lines[0].text).toBe('Foo bar baz');
@@ -113,7 +119,9 @@ describe('parseLrc', () => {
     const result = parseLrc('[00:01.2]Bad', { mode: 'tolerant' });
 
     expect(result.document.lines).toEqual([]);
-    expect(result.document.unknownEntries).toEqual([{ raw: '[00:01.2]Bad', location: { line: 1, column: 1 } }]);
+    expect(result.document.unknownEntries).toEqual([
+      { raw: '[00:01.2]Bad', location: { line: 1, column: 1 } },
+    ]);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0].severity).toBe('warning');
     expect(result.diagnostics[0].code).toBe('LRC_TIMESTAMP_INVALID');
@@ -123,7 +131,9 @@ describe('parseLrc', () => {
     const result = parseLrc('[ar:Artist', { mode: 'tolerant' });
 
     expect(result.document.metadata).toEqual({});
-    expect(result.document.unknownEntries).toEqual([{ raw: '[ar:Artist', location: { line: 1, column: 1 } }]);
+    expect(result.document.unknownEntries).toEqual([
+      { raw: '[ar:Artist', location: { line: 1, column: 1 } },
+    ]);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]).toMatchObject({
       severity: 'warning',

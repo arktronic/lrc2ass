@@ -21,7 +21,10 @@ function parseLengthMetadata(value: string | undefined): number | undefined {
   if (!value) {
     return undefined;
   }
-  const cleanValue = value.trim().replace(/^\(|\)$/g, '').trim();
+  const cleanValue = value
+    .trim()
+    .replace(/^\(|\)$/g, '')
+    .trim();
   const dotMatch = cleanValue.match(/^(?:(\d+):)?(\d+):(\d{2})(?:\.(\d{1,3}))?$/);
   if (dotMatch) {
     const hours = dotMatch[1] === undefined ? 0 : Number.parseInt(dotMatch[1], 10);
@@ -134,7 +137,10 @@ export function normalizeLyrics(
 
   let defaultTrailingDurationMs = DEFAULT_TRAILING_DURATION_MS;
   if (options.defaultTrailingDurationMs !== undefined) {
-    if (!Number.isSafeInteger(options.defaultTrailingDurationMs) || options.defaultTrailingDurationMs < 0) {
+    if (
+      !Number.isSafeInteger(options.defaultTrailingDurationMs) ||
+      options.defaultTrailingDurationMs < 0
+    ) {
       diagnostics.push({
         code: 'LRC_INVALID_OPTION',
         message: `defaultTrailingDurationMs must be a non-negative safe integer, received ${options.defaultTrailingDurationMs}${mode === 'tolerant' ? `; falling back to ${DEFAULT_TRAILING_DURATION_MS}ms.` : '.'}`,
@@ -210,9 +216,15 @@ export function normalizeLyrics(
       }
 
       if (t === 0) {
-        previousLineTimeMs = previousLineTimeMs === undefined ? effectiveStartMs : Math.max(previousLineTimeMs, effectiveStartMs);
+        previousLineTimeMs =
+          previousLineTimeMs === undefined
+            ? effectiveStartMs
+            : Math.max(previousLineTimeMs, effectiveStartMs);
       }
-      lineLevelPrevTs = lineLevelPrevTs === undefined ? effectiveStartMs : Math.max(lineLevelPrevTs, effectiveStartMs);
+      lineLevelPrevTs =
+        lineLevelPrevTs === undefined
+          ? effectiveStartMs
+          : Math.max(lineLevelPrevTs, effectiveStartMs);
 
       let segments = line.enhancedSegments ? [...line.enhancedSegments] : undefined;
 
@@ -223,9 +235,10 @@ export function normalizeLyrics(
       if (effectiveStartMs < 0) {
         diagnostics.push({
           code: 'LRC_NEGATIVE_TIME',
-          message: mode === 'strict'
-            ? `Effective timestamp ${effectiveStartMs}ms is negative after applying offsets.`
-            : `Effective timestamp ${effectiveStartMs}ms is negative after applying offsets; clamped to 0.`,
+          message:
+            mode === 'strict'
+              ? `Effective timestamp ${effectiveStartMs}ms is negative after applying offsets.`
+              : `Effective timestamp ${effectiveStartMs}ms is negative after applying offsets; clamped to 0.`,
           severity: mode === 'strict' ? 'error' : 'warning',
           location: ts.location ?? line.location,
         });
@@ -266,7 +279,10 @@ export function normalizeLyrics(
   const nextDistinctStarts: (number | undefined)[] = new Array(rawOccurrences.length);
   let nextDistinct: number | undefined;
   for (let i = rawOccurrences.length - 1; i >= 0; i--) {
-    if (i < rawOccurrences.length - 1 && rawOccurrences[i + 1].startMs > rawOccurrences[i].startMs) {
+    if (
+      i < rawOccurrences.length - 1 &&
+      rawOccurrences[i + 1].startMs > rawOccurrences[i].startMs
+    ) {
       nextDistinct = rawOccurrences[i + 1].startMs;
     }
     nextDistinctStarts[i] = nextDistinct;
@@ -298,7 +314,10 @@ export function normalizeLyrics(
         );
       }
       finalEnhancedSegmentStartMs = enhancedSegmentStartMs ?? Number.MAX_SAFE_INTEGER;
-      const enhancedTrailingEndMs = addSafeMilliseconds(finalEnhancedSegmentStartMs, defaultTrailingDurationMs);
+      const enhancedTrailingEndMs = addSafeMilliseconds(
+        finalEnhancedSegmentStartMs,
+        defaultTrailingDurationMs,
+      );
       if (enhancedTrailingEndMs === undefined) {
         reportTimingOverflow(
           `Final enhanced segment start ${finalEnhancedSegmentStartMs}ms cannot be extended by ${defaultTrailingDurationMs}ms without exceeding the supported range.`,
@@ -311,10 +330,15 @@ export function normalizeLyrics(
     if (nextStartMs !== undefined) {
       endMs = nextStartMs;
       // Under 'preserve', if enhanced segments extend to or beyond nextStartMs, allow the line to extend with trailing duration
-      if (overlapPolicy === 'preserve' && finalEnhancedSegmentStartMs !== undefined && finalEnhancedSegmentStartMs >= endMs) {
+      if (
+        overlapPolicy === 'preserve' &&
+        finalEnhancedSegmentStartMs !== undefined &&
+        finalEnhancedSegmentStartMs >= endMs
+      ) {
         endMs = trailingEnhancedEndMs!;
-        const overlapDurationBound = finalDurationCandidates.find((candidate) =>
-          candidate.value !== undefined && candidate.value > finalEnhancedSegmentStartMs,
+        const overlapDurationBound = finalDurationCandidates.find(
+          (candidate) =>
+            candidate.value !== undefined && candidate.value > finalEnhancedSegmentStartMs,
         )?.value;
         if (overlapDurationBound !== undefined && endMs > overlapDurationBound) {
           endMs = overlapDurationBound;
@@ -322,9 +346,10 @@ export function normalizeLyrics(
       }
     } else {
       const finalTimingAnchorMs = finalEnhancedSegmentStartMs ?? curr.startMs;
-      const finalTimingAnchorName = finalEnhancedSegmentStartMs === undefined
-        ? 'final lyric start'
-        : 'final enhanced segment start';
+      const finalTimingAnchorName =
+        finalEnhancedSegmentStartMs === undefined
+          ? 'final lyric start'
+          : 'final enhanced segment start';
       const finalDurationBound = finalDurationCandidates.find((candidate) => {
         if (candidate.value === undefined) {
           return false;
@@ -355,7 +380,11 @@ export function normalizeLyrics(
     }
 
     // Ensure endMs is never less than the last enhanced segment start (unless truncate explicitly requested)
-    if (finalEnhancedSegmentStartMs !== undefined && endMs < finalEnhancedSegmentStartMs && overlapPolicy !== 'truncate') {
+    if (
+      finalEnhancedSegmentStartMs !== undefined &&
+      endMs < finalEnhancedSegmentStartMs &&
+      overlapPolicy !== 'truncate'
+    ) {
       endMs = finalEnhancedSegmentStartMs;
     }
 

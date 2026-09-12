@@ -48,7 +48,11 @@ function makeDiagnostic(
   return { severity, code, message, location };
 }
 
-function pushUnknownEntry(document: ParseResult['document'], raw: string, lineNumber: number): void {
+function pushUnknownEntry(
+  document: ParseResult['document'],
+  raw: string,
+  lineNumber: number,
+): void {
   document.unknownEntries.push({ raw, location: toLocation(lineNumber, 1) });
 }
 
@@ -123,7 +127,8 @@ function parseTimestampToken(token: string): ParsedTimestamp {
     }
 
     const fraction = dotMatch[4];
-    const fractionMs = fraction.length === 2 ? Number.parseInt(fraction, 10) * 10 : Number.parseInt(fraction, 10);
+    const fractionMs =
+      fraction.length === 2 ? Number.parseInt(fraction, 10) * 10 : Number.parseInt(fraction, 10);
     const timeMs = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + fractionMs;
     if (!Number.isSafeInteger(timeMs)) {
       return {
@@ -166,7 +171,11 @@ function parseTimestampToken(token: string): ParsedTimestamp {
   };
 }
 
-function parseLeadingTimestamps(lineText: string, lineNumber: number, baseColumn: number): LeadingTimestampResult {
+function parseLeadingTimestamps(
+  lineText: string,
+  lineNumber: number,
+  baseColumn: number,
+): LeadingTimestampResult {
   const timestamps: LrcTimestamp[] = [];
   let index = 0;
 
@@ -177,7 +186,12 @@ function parseLeadingTimestamps(lineText: string, lineNumber: number, baseColumn
       return {
         timestamps,
         textStartIndex: index,
-        malformed: makeDiagnostic('error', 'LRC_TIMESTAMP_UNCLOSED', 'Unclosed timestamp bracket.', location),
+        malformed: makeDiagnostic(
+          'error',
+          'LRC_TIMESTAMP_UNCLOSED',
+          'Unclosed timestamp bracket.',
+          location,
+        ),
       };
     }
 
@@ -191,7 +205,12 @@ function parseLeadingTimestamps(lineText: string, lineNumber: number, baseColumn
       return {
         timestamps,
         textStartIndex: index,
-        malformed: makeDiagnostic('error', parsed.code, parsed.message, toLocation(lineNumber, baseColumn + index)),
+        malformed: makeDiagnostic(
+          'error',
+          parsed.code,
+          parsed.message,
+          toLocation(lineNumber, baseColumn + index),
+        ),
       };
     }
 
@@ -220,7 +239,11 @@ function hasLeadingUnclosedMetadataTag(lineText: string): boolean {
   return key.length > 0 && !/^\d+$/.test(key);
 }
 
-function parseMetadataLine(lineText: string, lineNumber: number, baseColumn: number): ParsedMetadataLine | null {
+function parseMetadataLine(
+  lineText: string,
+  lineNumber: number,
+  baseColumn: number,
+): ParsedMetadataLine | null {
   if (!lineText.startsWith('[')) {
     return null;
   }
@@ -376,7 +399,11 @@ function parseEnhancedSegments(
     });
   }
 
-  return { ok: true, text: collapseSpaces(segments.map((segment) => segment.text).join('')).trim(), segments };
+  return {
+    ok: true,
+    text: collapseSpaces(segments.map((segment) => segment.text).join('')).trim(),
+    segments,
+  };
 }
 
 // Some enhanced-LRC generators pad tags with a space on both sides, doubling whitespace once segments are joined.
@@ -395,7 +422,10 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
 
   const lines = text.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
-    const { raw, lineNumber, leadingWhitespaceLength, content } = prepareLine(lines[index], index + 1);
+    const { raw, lineNumber, leadingWhitespaceLength, content } = prepareLine(
+      lines[index],
+      index + 1,
+    );
 
     if (content.trim().length === 0) {
       continue;
@@ -454,12 +484,7 @@ export function parseLrc(text: string, options: ParseOptions): ParseResult {
           options,
           document,
           diagnostics,
-          makeDiagnostic(
-            'error',
-            enhanced.code,
-            enhanced.message,
-            enhanced.location,
-          ),
+          makeDiagnostic('error', enhanced.code, enhanced.message, enhanced.location),
           raw,
           lineNumber,
         );

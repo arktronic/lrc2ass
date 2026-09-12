@@ -60,7 +60,9 @@ describe('convert', () => {
     convert('lrc text', {});
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', DEFAULT_PARSE_OPTIONS);
-    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: DEFAULT_PARSE_OPTIONS.mode });
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, {
+      mode: DEFAULT_PARSE_OPTIONS.mode,
+    });
     expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS, undefined);
   });
 
@@ -68,7 +70,9 @@ describe('convert', () => {
     convert('lrc text');
 
     expect(mockedParseLrc).toHaveBeenCalledWith('lrc text', DEFAULT_PARSE_OPTIONS);
-    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, { mode: DEFAULT_PARSE_OPTIONS.mode });
+    expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, {
+      mode: DEFAULT_PARSE_OPTIONS.mode,
+    });
     expect(mockedPlanEvents).toHaveBeenCalledWith(normalized, DEFAULT_PLAN_OPTIONS, undefined);
   });
 
@@ -99,7 +103,10 @@ describe('convert', () => {
   });
 
   it('treats normalize mode undefined as unset', () => {
-    convert('lrc text', { parse: { mode: 'strict' }, normalize: { mode: undefined, offsetMs: 25 } });
+    convert('lrc text', {
+      parse: { mode: 'strict' },
+      normalize: { mode: undefined, offsetMs: 25 },
+    });
 
     expect(mockedNormalizeLyrics).toHaveBeenCalledWith(document, {
       mode: 'strict',

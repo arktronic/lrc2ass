@@ -73,7 +73,9 @@ describe('parseLrc snippet compatibility', () => {
     const result = parseLrc(input, { mode: 'tolerant' });
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.document.lines[0].enhancedSegments?.map((segment) => [segment.text, segment.timeMs])).toEqual([
+    expect(
+      result.document.lines[0].enhancedSegments?.map((segment) => [segment.text, segment.timeMs]),
+    ).toEqual([
       ['A', 0],
       ['B', 500],
       ['C', 500],
@@ -83,9 +85,9 @@ describe('parseLrc snippet compatibility', () => {
   it('preserves a leading enhanced timestamp as a timed-text gap', () => {
     const result = parseLrc('[00:10.00]<00:10.50>Hello', { mode: 'tolerant' });
 
-    expect(result.document.lines[0].enhancedSegments?.map((segment) => [segment.text, segment.timeMs])).toEqual([
-      ['Hello', 500],
-    ]);
+    expect(
+      result.document.lines[0].enhancedSegments?.map((segment) => [segment.text, segment.timeMs]),
+    ).toEqual([['Hello', 500]]);
   });
 
   it('keeps walaoke marker prefixes as lyric text', () => {

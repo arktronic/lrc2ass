@@ -69,7 +69,9 @@ export async function runCli(
   const { text: ass, diagnostics } = convert(text);
 
   for (const diagnostic of diagnostics) {
-    const location = diagnostic.location ? ` (${diagnostic.location.line}:${diagnostic.location.column})` : '';
+    const location = diagnostic.location
+      ? ` (${diagnostic.location.line}:${diagnostic.location.column})`
+      : '';
     await writeStream(io.stderr, `${diagnostic.severity}: ${diagnostic.message}${location}\n`);
   }
 

@@ -243,7 +243,10 @@ describe('normalizeLyrics', () => {
     };
 
     // 1. Length metadata wins over trackEndMs and defaultTrailingDurationMs
-    const res1 = normalizeLyrics(docWithLength, { trackEndMs: 220000, defaultTrailingDurationMs: 5000 });
+    const res1 = normalizeLyrics(docWithLength, {
+      trackEndMs: 220000,
+      defaultTrailingDurationMs: 5000,
+    });
     expect(res1.normalized.occurrences[0].endMs).toBe(210000);
 
     // 2. trackEndMs wins over defaultTrailingDurationMs when length metadata is absent
@@ -258,7 +261,10 @@ describe('normalizeLyrics', () => {
       ],
       unknownEntries: [],
     };
-    const res2 = normalizeLyrics(docNoLength, { trackEndMs: 15000, defaultTrailingDurationMs: 2000 });
+    const res2 = normalizeLyrics(docNoLength, {
+      trackEndMs: 15000,
+      defaultTrailingDurationMs: 2000,
+    });
     expect(res2.normalized.occurrences[0].endMs).toBe(15000);
 
     // 3. defaultTrailingDurationMs fallback
@@ -514,14 +520,21 @@ describe('normalizeLyrics', () => {
     };
 
     // Under truncate: simultaneous lines at 1000ms should both end at 5000ms (not truncated against each other to 1000ms)
-    const resTruncate = normalizeLyrics(document, { overlapPolicy: 'truncate', defaultTrailingDurationMs: 2000 });
+    const resTruncate = normalizeLyrics(document, {
+      overlapPolicy: 'truncate',
+      defaultTrailingDurationMs: 2000,
+    });
     expect(resTruncate.normalized.occurrences[0].startMs).toBe(1000);
     expect(resTruncate.normalized.occurrences[0].endMs).toBe(5000);
     expect(resTruncate.normalized.occurrences[1].startMs).toBe(1000);
     expect(resTruncate.normalized.occurrences[1].endMs).toBe(5000);
 
     // Under error & strict mode: simultaneous starts are valid multi-voice lines and should not trigger LRC_OVERLAPPING_OCCURRENCE
-    const resError = normalizeLyrics(document, { overlapPolicy: 'error', mode: 'strict', defaultTrailingDurationMs: 2000 });
+    const resError = normalizeLyrics(document, {
+      overlapPolicy: 'error',
+      mode: 'strict',
+      defaultTrailingDurationMs: 2000,
+    });
     expect(resError.diagnostics).toEqual([]);
     expect(resError.normalized.occurrences).toHaveLength(3);
   });
@@ -739,7 +752,10 @@ describe('normalizeLyrics', () => {
     expect(strictRes.normalized.occurrences).toEqual([]);
 
     // Tolerant mode: warning diagnostic and clamped to previous timestamp (5000ms), preserving line order
-    const tolerantRes = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: 2000 });
+    const tolerantRes = normalizeLyrics(document, {
+      mode: 'tolerant',
+      defaultTrailingDurationMs: 2000,
+    });
     expect(tolerantRes.diagnostics).toHaveLength(1);
     expect(tolerantRes.diagnostics[0].severity).toBe('warning');
     expect(tolerantRes.diagnostics[0].code).toBe('LRC_NON_MONOTONIC_TIMESTAMP');
@@ -764,7 +780,10 @@ describe('normalizeLyrics', () => {
     };
 
     // Strict mode rejects negative defaultTrailingDurationMs
-    const strictRes = normalizeLyrics(document, { mode: 'strict', defaultTrailingDurationMs: -500 });
+    const strictRes = normalizeLyrics(document, {
+      mode: 'strict',
+      defaultTrailingDurationMs: -500,
+    });
     expect(strictRes.diagnostics).toHaveLength(1);
     expect(strictRes.diagnostics[0].severity).toBe('error');
     expect(strictRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
@@ -778,7 +797,10 @@ describe('normalizeLyrics', () => {
     expect(strictTrackRes.normalized.occurrences).toEqual([]);
 
     // Tolerant mode warns and falls back to default 5000ms
-    const tolerantRes = normalizeLyrics(document, { mode: 'tolerant', defaultTrailingDurationMs: -500 });
+    const tolerantRes = normalizeLyrics(document, {
+      mode: 'tolerant',
+      defaultTrailingDurationMs: -500,
+    });
     expect(tolerantRes.diagnostics).toHaveLength(1);
     expect(tolerantRes.diagnostics[0].severity).toBe('warning');
     expect(tolerantRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
@@ -786,7 +808,11 @@ describe('normalizeLyrics', () => {
     expect(tolerantRes.normalized.occurrences[0].endMs).toBe(6000);
 
     // Tolerant mode warns and ignores negative trackEndMs, falling back to defaultTrailingDurationMs
-    const tolerantTrackRes = normalizeLyrics(document, { mode: 'tolerant', trackEndMs: -100, defaultTrailingDurationMs: 2000 });
+    const tolerantTrackRes = normalizeLyrics(document, {
+      mode: 'tolerant',
+      trackEndMs: -100,
+      defaultTrailingDurationMs: 2000,
+    });
     expect(tolerantTrackRes.diagnostics).toHaveLength(1);
     expect(tolerantTrackRes.diagnostics[0].severity).toBe('warning');
     expect(tolerantTrackRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
@@ -819,7 +845,11 @@ describe('normalizeLyrics', () => {
 
     // Tolerant mode warns and ignores invalid offsetMs, using metadata offset (500ms)
     for (const invalidOffset of invalidOffsets) {
-      const tolerantRes = normalizeLyrics(document, { mode: 'tolerant', offsetMs: invalidOffset, defaultTrailingDurationMs: 1000 });
+      const tolerantRes = normalizeLyrics(document, {
+        mode: 'tolerant',
+        offsetMs: invalidOffset,
+        defaultTrailingDurationMs: 1000,
+      });
       expect(tolerantRes.diagnostics).toHaveLength(1);
       expect(tolerantRes.diagnostics[0].severity).toBe('warning');
       expect(tolerantRes.diagnostics[0].code).toBe('LRC_INVALID_OPTION');
@@ -831,11 +861,13 @@ describe('normalizeLyrics', () => {
   it('reports invalid timing metadata and fails in strict mode', () => {
     const document: LrcDocument = {
       metadata: { offset: 'soon', length: 'later', t_time: 'eventually' },
-      lines: [{
-        timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
-        text: 'Hello',
-        location: { line: 1, column: 1 },
-      }],
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Hello',
+          location: { line: 1, column: 1 },
+        },
+      ],
       unknownEntries: [],
     };
 
@@ -855,11 +887,13 @@ describe('normalizeLyrics', () => {
   it('reports an impossible final duration bound and uses fallback timing in tolerant mode', () => {
     const document: LrcDocument = {
       metadata: { length: '00:01' },
-      lines: [{
-        timestamps: [{ timeMs: 2000, location: { line: 1, column: 1 } }],
-        text: 'Late lyric',
-        location: { line: 1, column: 1 },
-      }],
+      lines: [
+        {
+          timestamps: [{ timeMs: 2000, location: { line: 1, column: 1 } }],
+          text: 'Late lyric',
+          location: { line: 1, column: 1 },
+        },
+      ],
       unknownEntries: [],
     };
 
@@ -881,11 +915,13 @@ describe('normalizeLyrics', () => {
   it('uses the next usable final duration bound in tolerant mode', () => {
     const document: LrcDocument = {
       metadata: { length: '00:01', t_time: '00:04' },
-      lines: [{
-        timestamps: [{ timeMs: 2000, location: { line: 1, column: 1 } }],
-        text: 'Late lyric',
-        location: { line: 1, column: 1 },
-      }],
+      lines: [
+        {
+          timestamps: [{ timeMs: 2000, location: { line: 1, column: 1 } }],
+          text: 'Late lyric',
+          location: { line: 1, column: 1 },
+        },
+      ],
       unknownEntries: [],
     };
 
@@ -900,15 +936,17 @@ describe('normalizeLyrics', () => {
   it('identifies the final enhanced segment as the invalid duration-bound anchor', () => {
     const document: LrcDocument = {
       metadata: { length: '00:04' },
-      lines: [{
-        timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
-        text: 'Held note',
-        enhancedSegments: [
-          { text: 'Held ', timeMs: 0, location: { line: 1, column: 1 } },
-          { text: 'note', timeMs: 4000, location: { line: 1, column: 6 } },
-        ],
-        location: { line: 1, column: 1 },
-      }],
+      lines: [
+        {
+          timestamps: [{ timeMs: 1000, location: { line: 1, column: 1 } }],
+          text: 'Held note',
+          enhancedSegments: [
+            { text: 'Held ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'note', timeMs: 4000, location: { line: 1, column: 6 } },
+          ],
+          location: { line: 1, column: 1 },
+        },
+      ],
       unknownEntries: [],
     };
 
@@ -921,15 +959,17 @@ describe('normalizeLyrics', () => {
   it('handles enhanced trailing-duration overflow without storing an unsafe boundary', () => {
     const document: LrcDocument = {
       metadata: {},
-      lines: [{
-        timestamps: [{ timeMs: Number.MAX_SAFE_INTEGER - 10, location: { line: 1, column: 1 } }],
-        text: 'Final note',
-        enhancedSegments: [
-          { text: 'Final ', timeMs: 0, location: { line: 1, column: 1 } },
-          { text: 'note', timeMs: 5, location: { line: 1, column: 7 } },
-        ],
-        location: { line: 1, column: 1 },
-      }],
+      lines: [
+        {
+          timestamps: [{ timeMs: Number.MAX_SAFE_INTEGER - 10, location: { line: 1, column: 1 } }],
+          text: 'Final note',
+          enhancedSegments: [
+            { text: 'Final ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'note', timeMs: 5, location: { line: 1, column: 7 } },
+          ],
+          location: { line: 1, column: 1 },
+        },
+      ],
       unknownEntries: [],
     };
 

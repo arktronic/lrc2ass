@@ -35,7 +35,11 @@ const MAX_PREVIEW_LINES_CAP = 8;
 // anchored edge to its first row. For the default 2-row case, an8 (top row) measures it from the
 // top edge and an2 (bottom row) measures it from the bottom edge, so this single value centers both
 // rows toward/away from each other at once (twice as fast as either edge alone).
-function computeRowBlockTopMargin(resolutionY: number, rowHeightPx: number, rowCount: number): number {
+function computeRowBlockTopMargin(
+  resolutionY: number,
+  rowHeightPx: number,
+  rowCount: number,
+): number {
   return Math.round((resolutionY - rowCount * rowHeightPx) / 2);
 }
 
@@ -124,7 +128,9 @@ const PLAN_PRESETS: Readonly<Record<PlanPreset, PlanPresetDefaults>> = Object.fr
   }),
 });
 
-function definedLayoutOverrides(overrides: Partial<LayoutOptions> | undefined): Partial<LayoutOptions> {
+function definedLayoutOverrides(
+  overrides: Partial<LayoutOptions> | undefined,
+): Partial<LayoutOptions> {
   if (!overrides) {
     return {};
   }
@@ -133,7 +139,9 @@ function definedLayoutOverrides(overrides: Partial<LayoutOptions> | undefined): 
   ) as Partial<LayoutOptions>;
 }
 
-function definedInterludeOverrides(overrides: PlanOverrideOptions['interlude']): Partial<NonNullable<PlanOptions['interlude']>> {
+function definedInterludeOverrides(
+  overrides: PlanOverrideOptions['interlude'],
+): Partial<NonNullable<PlanOptions['interlude']>> {
   if (!overrides) {
     return {};
   }
@@ -143,12 +151,15 @@ function definedInterludeOverrides(overrides: PlanOverrideOptions['interlude']):
 }
 
 function mergeStyleOptions(...styles: Array<PlanStyleOptions | undefined>): PlanStyleOptions {
-  return Object.assign({}, ...styles.map((style) => {
-    if (!style) {
-      return {};
-    }
-    return Object.fromEntries(Object.entries(style).filter(([, value]) => value !== undefined));
-  }));
+  return Object.assign(
+    {},
+    ...styles.map((style) => {
+      if (!style) {
+        return {};
+      }
+      return Object.fromEntries(Object.entries(style).filter(([, value]) => value !== undefined));
+    }),
+  );
 }
 
 function resolveStyles(
@@ -159,15 +170,24 @@ function resolveStyles(
   return {
     lyrics: mergeStyleOptions(presetStyles.lyrics, baseStyles?.lyrics, overrideStyles?.lyrics),
     preview: mergeStyleOptions(presetStyles.preview, baseStyles?.preview, overrideStyles?.preview),
-    interlude: mergeStyleOptions(presetStyles.interlude, baseStyles?.interlude, overrideStyles?.interlude),
+    interlude: mergeStyleOptions(
+      presetStyles.interlude,
+      baseStyles?.interlude,
+      overrideStyles?.interlude,
+    ),
   };
 }
 
-function resolvePlanOptions(baseOptions: PlanOptions, overrides: PlanOverrideOptions | undefined): ResolvedPlanOptions {
+function resolvePlanOptions(
+  baseOptions: PlanOptions,
+  overrides: PlanOverrideOptions | undefined,
+): ResolvedPlanOptions {
   const preset = overrides?.preset ?? baseOptions.preset ?? 'single-line';
   const presetDefaults = PLAN_PRESETS[preset];
   if (!presetDefaults) {
-    throw new RangeError(`preset must be "single-line" or "multi-line", received ${String(preset)}`);
+    throw new RangeError(
+      `preset must be "single-line" or "multi-line", received ${String(preset)}`,
+    );
   }
   const interlude = baseOptions.interlude
     ? { ...baseOptions.interlude, ...definedInterludeOverrides(overrides?.interlude) }
@@ -205,10 +225,17 @@ function assertAlignment(value: number, name: string): void {
 
 function assertStyleOptions(styles: PlanStyleOptions, role: string): void {
   if (styles.fontName !== undefined && !/^[^,\r\n]+$/.test(styles.fontName)) {
-    throw new RangeError(`${role}.fontName must be non-empty and cannot contain commas or line breaks`);
+    throw new RangeError(
+      `${role}.fontName must be non-empty and cannot contain commas or line breaks`,
+    );
   }
-  if (styles.fontSize !== undefined && (!Number.isFinite(styles.fontSize) || styles.fontSize <= 0)) {
-    throw new RangeError(`${role}.fontSize must be a positive finite number, received ${styles.fontSize}`);
+  if (
+    styles.fontSize !== undefined &&
+    (!Number.isFinite(styles.fontSize) || styles.fontSize <= 0)
+  ) {
+    throw new RangeError(
+      `${role}.fontSize must be a positive finite number, received ${styles.fontSize}`,
+    );
   }
   if (styles.alignment !== undefined) {
     assertAlignment(styles.alignment, `${role}.alignment`);
@@ -218,11 +245,18 @@ function assertStyleOptions(styles: PlanStyleOptions, role: string): void {
       assertNonNegativeSafeInteger(styles[margin], `${role}.${margin}`);
     }
   }
-  if (styles.backOpacity !== undefined && (!Number.isFinite(styles.backOpacity) || styles.backOpacity < 0 || styles.backOpacity > 1)) {
-    throw new RangeError(`${role}.backOpacity must be between 0 and 1, received ${styles.backOpacity}`);
+  if (
+    styles.backOpacity !== undefined &&
+    (!Number.isFinite(styles.backOpacity) || styles.backOpacity < 0 || styles.backOpacity > 1)
+  ) {
+    throw new RangeError(
+      `${role}.backOpacity must be between 0 and 1, received ${styles.backOpacity}`,
+    );
   }
   if (styles.shadow !== undefined && (!Number.isFinite(styles.shadow) || styles.shadow < 0)) {
-    throw new RangeError(`${role}.shadow must be a non-negative finite number, received ${styles.shadow}`);
+    throw new RangeError(
+      `${role}.shadow must be a non-negative finite number, received ${styles.shadow}`,
+    );
   }
   for (const color of ['primaryColor', 'secondaryColor', 'outlineColor', 'backColor'] as const) {
     if (styles[color] !== undefined) {
@@ -239,15 +273,25 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   assertNonNegativeSafeInteger(options.previewLeadMs, 'previewLeadMs');
   assertNonNegativeSafeInteger(options.fadeInMs, 'fadeInMs');
   assertNonNegativeSafeInteger(options.fadeOutMs, 'fadeOutMs');
-  if (!Number.isInteger(options.maxPreviewLines) || options.maxPreviewLines < 1 || options.maxPreviewLines > MAX_PREVIEW_LINES_CAP) {
-    throw new RangeError(`maxPreviewLines must be an integer from 1 to ${MAX_PREVIEW_LINES_CAP}, received ${options.maxPreviewLines}`);
+  if (
+    !Number.isInteger(options.maxPreviewLines) ||
+    options.maxPreviewLines < 1 ||
+    options.maxPreviewLines > MAX_PREVIEW_LINES_CAP
+  ) {
+    throw new RangeError(
+      `maxPreviewLines must be an integer from 1 to ${MAX_PREVIEW_LINES_CAP}, received ${options.maxPreviewLines}`,
+    );
   }
   assertNonNegativeSafeInteger(options.lingerMaxMs, 'lingerMaxMs');
   if (!Number.isSafeInteger(options.layout.resolutionX) || options.layout.resolutionX <= 0) {
-    throw new RangeError(`layout.resolutionX must be a positive safe integer, received ${options.layout.resolutionX}`);
+    throw new RangeError(
+      `layout.resolutionX must be a positive safe integer, received ${options.layout.resolutionX}`,
+    );
   }
   if (!Number.isSafeInteger(options.layout.resolutionY) || options.layout.resolutionY <= 0) {
-    throw new RangeError(`layout.resolutionY must be a positive safe integer, received ${options.layout.resolutionY}`);
+    throw new RangeError(
+      `layout.resolutionY must be a positive safe integer, received ${options.layout.resolutionY}`,
+    );
   }
   assertAlignment(options.layout.alignment, 'layout.alignment');
   for (const margin of ['marginLeft', 'marginRight', 'marginVertical'] as const) {
@@ -255,12 +299,14 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
   }
   if (options.layout.marginLeft + options.layout.marginRight >= options.layout.resolutionX) {
     throw new RangeError(
-      `layout.marginLeft + layout.marginRight must be less than layout.resolutionX, received `
-      + `${options.layout.marginLeft} + ${options.layout.marginRight} >= ${options.layout.resolutionX}`,
+      `layout.marginLeft + layout.marginRight must be less than layout.resolutionX, received ` +
+        `${options.layout.marginLeft} + ${options.layout.marginRight} >= ${options.layout.resolutionX}`,
     );
   }
   if (!Number.isSafeInteger(options.layout.rowHeightPx) || options.layout.rowHeightPx <= 0) {
-    throw new RangeError(`layout.rowHeightPx must be a positive safe integer, received ${options.layout.rowHeightPx}`);
+    throw new RangeError(
+      `layout.rowHeightPx must be a positive safe integer, received ${options.layout.rowHeightPx}`,
+    );
   }
   if (options.layout.rowAlignment !== undefined) {
     assertAlignment(options.layout.rowAlignment, 'layout.rowAlignment');
@@ -270,18 +316,19 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
     const rowBlockHeight = rowCount * options.layout.rowHeightPx;
     if (rowBlockHeight >= options.layout.resolutionY) {
       throw new RangeError(
-        `The multi-line row block (maxPreviewLines + 1 = ${rowCount} rows * layout.rowHeightPx `
-        + `${options.layout.rowHeightPx} = ${rowBlockHeight}) must be strictly less than layout.resolutionY `
-        + `(an exact fit would produce a top row MarginV of 0, which ASS treats as "no override"), `
-        + `received ${options.layout.resolutionY}`,
+        `The multi-line row block (maxPreviewLines + 1 = ${rowCount} rows * layout.rowHeightPx ` +
+          `${options.layout.rowHeightPx} = ${rowBlockHeight}) must be strictly less than layout.resolutionY ` +
+          `(an exact fit would produce a top row MarginV of 0, which ASS treats as "no override"), ` +
+          `received ${options.layout.resolutionY}`,
       );
     }
-    const rowAlignment = options.layout.rowAlignment ?? options.styles.preview?.alignment ?? options.layout.alignment;
+    const rowAlignment =
+      options.layout.rowAlignment ?? options.styles.preview?.alignment ?? options.layout.alignment;
     if (rowAlignment >= 4 && rowAlignment <= 6) {
       throw new RangeError(
-        `layout.rowAlignment must be a top or bottom ASS alignment (1-3 or 7-9); middle alignments `
-        + `(4-6) ignore MarginV, so distinct rows would collapse onto the same vertical position, `
-        + `received ${rowAlignment}`,
+        `layout.rowAlignment must be a top or bottom ASS alignment (1-3 or 7-9); middle alignments ` +
+          `(4-6) ignore MarginV, so distinct rows would collapse onto the same vertical position, ` +
+          `received ${rowAlignment}`,
       );
     }
   }
@@ -297,7 +344,10 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
     assertNonNegativeSafeInteger(options.interlude.marginMs, 'interlude.marginMs');
   }
   if (options.interlude.trailingLyricDurationMs !== undefined) {
-    assertNonNegativeSafeInteger(options.interlude.trailingLyricDurationMs, 'interlude.trailingLyricDurationMs');
+    assertNonNegativeSafeInteger(
+      options.interlude.trailingLyricDurationMs,
+      'interlude.trailingLyricDurationMs',
+    );
   }
   if (options.interlude.blankGapMs !== undefined) {
     assertNonNegativeSafeInteger(options.interlude.blankGapMs, 'interlude.blankGapMs');
@@ -306,7 +356,9 @@ function assertPlanOptions(options: ResolvedPlanOptions): void {
     throw new RangeError(`interlude.strategy is invalid: ${String(options.interlude.strategy)}`);
   }
   if (options.interlude.style !== undefined && !/^[^,\r\n]+$/.test(options.interlude.style)) {
-    throw new RangeError('interlude.style must be non-empty and cannot contain commas or line breaks');
+    throw new RangeError(
+      'interlude.style must be non-empty and cannot contain commas or line breaks',
+    );
   }
 }
 
@@ -441,31 +493,42 @@ function karaokeText(
   );
   const leadingDurationMs = firstSegmentStartMs - eventStartMs;
   const showedPreSweep = leadingDurationMs >= PRE_SWEEP_MIN_DURATION_MS && showPreSweep;
-  const leadingTag = leadingDurationMs <= 0
-    ? ''
-    : showedPreSweep
-      ? preSweepText(tag, leadingDurationMs)
-      : `{\\${tag}${leadingDurationMs / CENTISECOND_MS}}`;
+  const leadingTag =
+    leadingDurationMs <= 0
+      ? ''
+      : showedPreSweep
+        ? preSweepText(tag, leadingDurationMs)
+        : `{\\${tag}${leadingDurationMs / CENTISECOND_MS}}`;
 
-  const karaokeSegments = leadingTag + renderedSegments.map((segment, index) => {
-    const segmentStart = Math.min(eventEndMs, Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segment.timeMs)));
-    const nextSegment = renderedSegments[index + 1];
-    const segmentEnd = nextSegment
-      ? Math.min(eventEndMs, Math.max(segmentStart, quantizeBoundary(sourceStartMs + nextSegment.timeMs)))
-      : eventEndMs;
-    const durationCentiseconds = (segmentEnd - segmentStart) / CENTISECOND_MS;
-    // Some enhanced-LRC generators pad tags with a space on both sides; since a {\k} tag renders invisibly,
-    // a trailing space on one segment plus a leading space on the next would visually double up. Only drop
-    // this segment's trailing space when there's no next segment (outer padding) or the next one also has
-    // its own leading space; otherwise this is the only word separator between them. Also drop the very
-    // first segment's leading space (outer padding).
-    const trimTrailingSpace = nextSegment === undefined || /^\s/.test(nextSegment.text);
-    let segmentText = trimTrailingSpace ? segment.text.trimEnd() : segment.text;
-    if (index === 0) {
-      segmentText = segmentText.trimStart();
-    }
-    return `{\\${tag}${durationCentiseconds}}${escapeAssText(segmentText)}`;
-  }).join('');
+  const karaokeSegments =
+    leadingTag +
+    renderedSegments
+      .map((segment, index) => {
+        const segmentStart = Math.min(
+          eventEndMs,
+          Math.max(eventStartMs, quantizeBoundary(sourceStartMs + segment.timeMs)),
+        );
+        const nextSegment = renderedSegments[index + 1];
+        const segmentEnd = nextSegment
+          ? Math.min(
+              eventEndMs,
+              Math.max(segmentStart, quantizeBoundary(sourceStartMs + nextSegment.timeMs)),
+            )
+          : eventEndMs;
+        const durationCentiseconds = (segmentEnd - segmentStart) / CENTISECOND_MS;
+        // Some enhanced-LRC generators pad tags with a space on both sides; since a {\k} tag renders invisibly,
+        // a trailing space on one segment plus a leading space on the next would visually double up. Only drop
+        // this segment's trailing space when there's no next segment (outer padding) or the next one also has
+        // its own leading space; otherwise this is the only word separator between them. Also drop the very
+        // first segment's leading space (outer padding).
+        const trimTrailingSpace = nextSegment === undefined || /^\s/.test(nextSegment.text);
+        let segmentText = trimTrailingSpace ? segment.text.trimEnd() : segment.text;
+        if (index === 0) {
+          segmentText = segmentText.trimStart();
+        }
+        return `{\\${tag}${durationCentiseconds}}${escapeAssText(segmentText)}`;
+      })
+      .join('');
   // Tags contain no spaces, so collapsing runs of 2+ spaces in the assembled string is safe.
   return { text: collapseSpaces(karaokeSegments), showedPreSweep };
 }
@@ -483,9 +546,8 @@ function lyricEndMs(
   nextOccurrenceStartMs: number | undefined,
   options: ResolvedPlanOptions,
 ): number {
-  const trailingDurationMs = options.interlude?.strategy === 'none'
-    ? undefined
-    : options.interlude?.trailingLyricDurationMs;
+  const trailingDurationMs =
+    options.interlude?.strategy === 'none' ? undefined : options.interlude?.trailingLyricDurationMs;
   // Nothing follows to occupy the gap (end of file, or gap too small for an interlude), so don't create unlabeled dead air.
   if (trailingDurationMs === undefined || nextOccurrenceStartMs === undefined) {
     return occurrence.endMs;
@@ -502,9 +564,10 @@ function lyricEndMs(
 
 /** The moment a lyric's first sung word actually occurs, per its enhanced segment timing (or its own timestamp if plain). */
 function effectiveSungStartMs(occurrence: NormalizedLyrics['occurrences'][number]): number {
-  const firstSegment = occurrence.segments && occurrence.segments.length > 0
-    ? sungSegments(occurrence.segments)[0]
-    : undefined;
+  const firstSegment =
+    occurrence.segments && occurrence.segments.length > 0
+      ? sungSegments(occurrence.segments)[0]
+      : undefined;
   return firstSegment ? occurrence.startMs + firstSegment.timeMs : occurrence.startMs;
 }
 
@@ -560,7 +623,11 @@ function computeMaxConcurrentLyrics(sortedEvents: AssEvent[]): number {
 // kept the screen busy for most of that window, with only its tail overlapping real silence), so
 // blocking lingering outright on any overlap would wrongly suppress it for that entire window; the
 // correct ceiling is the start of the earliest overlapping quiet gap, not an all-or-nothing block.
-function quietGapCeilingMs(startMs: number, endMs: number, quietGaps: Array<{ startMs: number; endMs: number }>): number {
+function quietGapCeilingMs(
+  startMs: number,
+  endMs: number,
+  quietGaps: Array<{ startMs: number; endMs: number }>,
+): number {
   let ceiling = Number.POSITIVE_INFINITY;
   for (const gap of quietGaps) {
     if (gap.startMs < endMs && gap.endMs > startMs) {
@@ -573,12 +640,18 @@ function quietGapCeilingMs(startMs: number, endMs: number, quietGaps: Array<{ st
 // Drawing-mode (\p1) path for a rounded rectangle, local origin at its own top-left corner.
 function roundedRectPath(width: number, height: number, radius: number): string {
   const r = radius;
-  return `m ${r} 0 l ${width - r} 0 b ${width} 0 ${width} 0 ${width} ${r} l ${width} ${height - r} `
-    + `b ${width} ${height} ${width} ${height} ${width - r} ${height} l ${r} ${height} `
-    + `b 0 ${height} 0 ${height} 0 ${height - r} l 0 ${r} b 0 0 0 0 ${r} 0`;
+  return (
+    `m ${r} 0 l ${width - r} 0 b ${width} 0 ${width} 0 ${width} ${r} l ${width} ${height - r} ` +
+    `b ${width} ${height} ${width} ${height} ${width - r} ${height} l ${r} ${height} ` +
+    `b 0 ${height} 0 ${height} 0 ${height - r} l 0 ${r} b 0 0 0 0 ${r} 0`
+  );
 }
 
-function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options: ResolvedPlanOptions): void {
+function addInterludeEvents(
+  events: AssEvent[],
+  lyricEvents: AssEvent[],
+  options: ResolvedPlanOptions,
+): void {
   const interlude = options.interlude;
   if (!interlude || interlude.strategy === 'none') {
     return;
@@ -596,7 +669,8 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
         events.push({ layer: 0, startMs, endMs, style, text: DEFAULT_INTERLUDE_TEXT });
       } else if (interlude.strategy === 'progress-bar') {
         const barLeft = options.layout.marginLeft;
-        const barWidth = options.layout.resolutionX - options.layout.marginLeft - options.layout.marginRight;
+        const barWidth =
+          options.layout.resolutionX - options.layout.marginLeft - options.layout.marginRight;
         const barHeight = Math.min(PROGRESS_BAR_HEIGHT_PX, options.layout.resolutionY);
         const barTop = Math.round((options.layout.resolutionY - barHeight) / 2);
         const radius = Math.max(0, Math.min(PROGRESS_BAR_RADIUS_PX, barHeight / 2, barWidth / 2));
@@ -617,10 +691,11 @@ function addInterludeEvents(events: AssEvent[], lyricEvents: AssEvent[], options
           startMs,
           endMs,
           style,
-          text: `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${fillColor}\\3c${borderColor}`
-            + `\\clip(${barLeft},${barTop},${barLeft},${barTop + barHeight})`
-            + `\\t(0,${endMs - startMs},\\clip(${barLeft},${barTop},${barLeft + barWidth},${barTop + barHeight}))}`
-            + `${path}{\\p0}`,
+          text:
+            `{\\p1\\an7\\pos(${barLeft},${barTop})\\shad0\\1c${fillColor}\\3c${borderColor}` +
+            `\\clip(${barLeft},${barTop},${barLeft},${barTop + barHeight})` +
+            `\\t(0,${endMs - startMs},\\clip(${barLeft},${barTop},${barLeft + barWidth},${barTop + barHeight}))}` +
+            `${path}{\\p0}`,
         });
       } else {
         for (let countdownStartMs = startMs; countdownStartMs < endMs; countdownStartMs += 1000) {
@@ -662,11 +737,19 @@ export function planEvents(
   const noFadeOutEvents = new Set<AssEvent>();
   const interludeStyleName = options.interlude?.style ?? INTERLUDE_STYLE_NAME;
   const lyricsStyle = createStyle(LYRIC_STYLE_NAME, options.layout, options.styles.lyrics ?? {});
-  const previewStyle = createStyle(PREVIEW_STYLE_NAME, options.layout, options.styles.preview ?? {});
+  const previewStyle = createStyle(
+    PREVIEW_STYLE_NAME,
+    options.layout,
+    options.styles.preview ?? {},
+  );
   const isMultiLine = PLAN_PRESETS[options.preset].showPreview;
 
   const rowCount = options.maxPreviewLines + 1;
-  const rowBlockTopMargin = computeRowBlockTopMargin(options.layout.resolutionY, options.layout.rowHeightPx, rowCount);
+  const rowBlockTopMargin = computeRowBlockTopMargin(
+    options.layout.resolutionY,
+    options.layout.rowHeightPx,
+    rowCount,
+  );
   // ASS's alignment values can't give each row its own anchor edge, so every row shares one
   // alignment and gets its own MarginV set per-event instead.
   const rowAlignment = options.layout.rowAlignment ?? previewStyle.alignment;
@@ -676,7 +759,9 @@ export function planEvents(
   // A lyric's box may start later than its own bracket timestamp when it has a large leading
   // enhanced-segment delay, deferred to just before its first sung word (never earlier than the bracket).
   const deferredStarts = normalized.occurrences.map((occurrence) =>
-    quantizeBoundary(Math.max(occurrence.startMs, effectiveSungStartMs(occurrence) - options.mainLinePreRollMs)),
+    quantizeBoundary(
+      Math.max(occurrence.startMs, effectiveSungStartMs(occurrence) - options.mainLinePreRollMs),
+    ),
   );
 
   // Deferred starts can invert source order, so successors must be resolved by start, not index.
@@ -702,7 +787,9 @@ export function planEvents(
       }
       groupHasVisibleMember = false;
     }
-    const endMs = quantizeBoundary(lyricEndMs(normalized.occurrences[sourceIndex], nextVisibleStartMs, options));
+    const endMs = quantizeBoundary(
+      lyricEndMs(normalized.occurrences[sourceIndex], nextVisibleStartMs, options),
+    );
     if (endMs > startMs) {
       isVisible[sourceIndex] = true;
       resolvedEndMs[sourceIndex] = endMs;
@@ -719,7 +806,10 @@ export function planEvents(
   while (groupPosition < chronologicalOrder.length) {
     const groupStartMs = deferredStarts[chronologicalOrder[groupPosition]];
     let groupEnd = groupPosition;
-    while (groupEnd < chronologicalOrder.length && deferredStarts[chronologicalOrder[groupEnd]] === groupStartMs) {
+    while (
+      groupEnd < chronologicalOrder.length &&
+      deferredStarts[chronologicalOrder[groupEnd]] === groupStartMs
+    ) {
       groupEnd++;
     }
 
@@ -734,7 +824,8 @@ export function planEvents(
       const endMs = resolvedEndMs[index];
 
       // Pre-sweep needs genuine dead air before this line, not just no immediate predecessor.
-      const showPreSweep = effectiveSungStartMs(occurrence) - priorActiveEndMs >= options.mainLinePreRollMs;
+      const showPreSweep =
+        effectiveSungStartMs(occurrence) - priorActiveEndMs >= options.mainLinePreRollMs;
 
       const { text, showedPreSweep } = karaokeText(
         occurrence.text,
@@ -781,9 +872,9 @@ export function planEvents(
     const maxConcurrency = computeMaxConcurrentLyrics(lyricOccurrences.map(({ event }) => event));
     if (maxConcurrency > rowCount) {
       throw new RangeError(
-        `Up to ${maxConcurrency} lyric lines are on screen at once, which exceeds the ${rowCount} `
-        + `available rows (maxPreviewLines + 1 = ${options.maxPreviewLines} + 1); raise maxPreviewLines `
-        + `or remove the overlapping occurrences.`,
+        `Up to ${maxConcurrency} lyric lines are on screen at once, which exceeds the ${rowCount} ` +
+          `available rows (maxPreviewLines + 1 = ${options.maxPreviewLines} + 1); raise maxPreviewLines ` +
+          `or remove the overlapping occurrences.`,
       );
     }
 
@@ -793,17 +884,23 @@ export function planEvents(
     // Gated on blankGapMs (falling back to, and clamped by, minGapMs) rather than minGapMs alone,
     // so a real gap too short to warrant a full Interlude can still stop rows from lingering across
     // it; the clamp keeps a blankGapMs inherited from defaults harmless when a caller lowers minGapMs.
-    const quietGaps = options.interlude !== undefined && options.interlude.strategy !== 'none'
-      ? computeQuietGaps(
-        lyricOccurrences,
-        Math.min(options.interlude.blankGapMs ?? options.interlude.minGapMs, options.interlude.minGapMs),
-      )
-      : [];
+    const quietGaps =
+      options.interlude !== undefined && options.interlude.strategy !== 'none'
+        ? computeQuietGaps(
+            lyricOccurrences,
+            Math.min(
+              options.interlude.blankGapMs ?? options.interlude.minGapMs,
+              options.interlude.minGapMs,
+            ),
+          )
+        : [];
     let rotation = 0;
     let screenBusyUntilMs = -Infinity;
     for (const [index, { event, occurrence }] of lyricOccurrences.entries()) {
       if (index > 0) {
-        const naturalAppearanceMs = quantizeBoundary(effectiveSungStartMs(occurrence) - options.previewLeadMs);
+        const naturalAppearanceMs = quantizeBoundary(
+          effectiveSungStartMs(occurrence) - options.previewLeadMs,
+        );
         const provisionalRow = (rotation + 1) % rowCount;
         const predecessorIndex = lastIndexForRow[provisionalRow];
         // A non-mutating estimate of how far this same-row predecessor would linger if this
@@ -813,10 +910,15 @@ export function planEvents(
         if (predecessorIndex !== undefined) {
           const predecessorEndMs = lyricOccurrences[predecessorIndex].event.endMs;
           const gapMs = naturalAppearanceMs - predecessorEndMs;
-          const lingerCeilingMs = quietGapCeilingMs(predecessorEndMs, naturalAppearanceMs, quietGaps);
-          const lingeredEndMs = gapMs > 0 && options.lingerMaxMs > 0
-            ? Math.min(predecessorEndMs + Math.min(gapMs, options.lingerMaxMs), lingerCeilingMs)
-            : predecessorEndMs;
+          const lingerCeilingMs = quietGapCeilingMs(
+            predecessorEndMs,
+            naturalAppearanceMs,
+            quietGaps,
+          );
+          const lingeredEndMs =
+            gapMs > 0 && options.lingerMaxMs > 0
+              ? Math.min(predecessorEndMs + Math.min(gapMs, options.lingerMaxMs), lingerCeilingMs)
+              : predecessorEndMs;
           predecessorCoverageMs = Math.max(predecessorCoverageMs, lingeredEndMs);
         }
         rotation = naturalAppearanceMs > predecessorCoverageMs ? 0 : rotation + 1;
@@ -827,7 +929,10 @@ export function planEvents(
         for (let attempt = 0; attempt < rowCount; attempt++) {
           const candidateRow = rotation % rowCount;
           const occupantIndex = lastIndexForRow[candidateRow];
-          if (occupantIndex === undefined || lyricOccurrences[occupantIndex].event.endMs <= event.startMs) {
+          if (
+            occupantIndex === undefined ||
+            lyricOccurrences[occupantIndex].event.endMs <= event.startMs
+          ) {
             break;
           }
           rotation++;
@@ -868,9 +973,10 @@ export function planEvents(
       // appear before the very first Lyrics event of the whole song (e.g. during a leading
       // instrumental gap) since nothing would yet be on screen to accompany it.
       const predecessorIndex = sameRowPredecessorIndex[index];
-      const rowFreeAtMs = predecessorIndex !== undefined
-        ? lyricOccurrences[predecessorIndex].event.endMs
-        : lyricOccurrences[0].event.startMs;
+      const rowFreeAtMs =
+        predecessorIndex !== undefined
+          ? lyricOccurrences[predecessorIndex].event.endMs
+          : lyricOccurrences[0].event.startMs;
       let previewStartMs = Math.max(
         rowFreeAtMs,
         quantizeBoundary(effectiveSungStartMs(occurrence) - options.previewLeadMs),
@@ -899,9 +1005,10 @@ export function planEvents(
           marginVertical: rowMarginForIndex(effectiveRow[index]),
           // Same row this occurrence's own Lyrics event will use, so it doesn't move when promoted to current.
           // Mirrors its own Lyrics event's pre-sweep dot prefix (static here) so nothing shifts at handoff.
-          text: alignmentTag(rowAlignment)
-            + (showedPreSweep ? PRE_SWEEP_STATIC_PREFIX : '')
-            + escapeAssText(occurrence.text),
+          text:
+            alignmentTag(rowAlignment) +
+            (showedPreSweep ? PRE_SWEEP_STATIC_PREFIX : '') +
+            escapeAssText(occurrence.text),
         };
         events.push(previewEvent);
         // The preview hands off to its own Lyrics event at the same instant with no visual gap
@@ -925,14 +1032,25 @@ export function planEvents(
         const current = lyricOccurrences[index].event;
         const gapMs = rowNeededAtMs[successorIndex] - current.endMs;
         if (gapMs > 0) {
-          const lingerCeilingMs = quietGapCeilingMs(current.endMs, rowNeededAtMs[successorIndex], quietGaps);
-          current.endMs = Math.min(current.endMs + Math.min(gapMs, options.lingerMaxMs), lingerCeilingMs);
+          const lingerCeilingMs = quietGapCeilingMs(
+            current.endMs,
+            rowNeededAtMs[successorIndex],
+            quietGaps,
+          );
+          current.endMs = Math.min(
+            current.endMs + Math.min(gapMs, options.lingerMaxMs),
+            lingerCeilingMs,
+          );
         }
       }
     }
   }
 
-  addInterludeEvents(events, lyricOccurrences.map(({ event }) => event), options);
+  addInterludeEvents(
+    events,
+    lyricOccurrences.map(({ event }) => event),
+    options,
+  );
 
   if (options.fadeInMs > 0 || options.fadeOutMs > 0) {
     for (const event of events) {
@@ -944,9 +1062,12 @@ export function planEvents(
 
   const orderedEvents = events
     .map((event, index) => ({ event, index }))
-    .sort((left, right) => left.event.startMs - right.event.startMs
-      || left.event.layer - right.event.layer
-      || left.index - right.index)
+    .sort(
+      (left, right) =>
+        left.event.startMs - right.event.startMs ||
+        left.event.layer - right.event.layer ||
+        left.index - right.index,
+    )
     .map(({ event }) => event);
 
   return {
@@ -958,9 +1079,9 @@ export function planEvents(
       lyricsStyle,
       previewStyle,
       createStyle(INTERLUDE_STYLE_NAME, options.layout, options.styles.interlude ?? {}),
-      ...(interludeStyleName === LYRIC_STYLE_NAME
-        || interludeStyleName === PREVIEW_STYLE_NAME
-        || interludeStyleName === INTERLUDE_STYLE_NAME
+      ...(interludeStyleName === LYRIC_STYLE_NAME ||
+      interludeStyleName === PREVIEW_STYLE_NAME ||
+      interludeStyleName === INTERLUDE_STYLE_NAME
         ? []
         : [createStyle(interludeStyleName, options.layout, options.styles.interlude ?? {})]),
     ],
