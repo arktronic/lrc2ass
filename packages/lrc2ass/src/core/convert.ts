@@ -38,7 +38,8 @@ function resolveOptions(options: ConvertOptions): {
 
 /** One-step conversion composed from parse, normalize, plan, and serialize. Unset options fall back to defaults. */
 export function convert(text: string, options: ConvertOptions = {}): ConvertResult {
-  const { parseOpt, normalizeOpt, planBaseOpt, planOverrideOpt, serializeOpt } = resolveOptions(options);
+  const { parseOpt, normalizeOpt, planBaseOpt, planOverrideOpt, serializeOpt } =
+    resolveOptions(options);
   const { document, diagnostics: parseDiagnostics } = parseLrc(text, parseOpt);
   const { normalized, diagnostics: normalizeDiagnostics } = normalizeLyrics(document, normalizeOpt);
   const ass = planEvents(normalized, planBaseOpt, planOverrideOpt);

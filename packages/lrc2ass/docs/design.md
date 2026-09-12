@@ -33,7 +33,7 @@ The public API provides parse, convert, and serialize stages plus a one-step fun
 - Diagnostic fields are public, but diagnostic code strings remain internal until the public API is stabilized.
 - Times use integer milliseconds until conversion to ASS centiseconds.
 - Presets are immutable option sets, not separate conversion paths. Explicit caller options override preset values.
-- Serialization is deterministic: the same document always serializes to the same text. Presets, defaults, and exact output are expected to evolve and are not a compatibility guarantee — only public model/option/result *shapes* (field names and types) are.
+- Serialization is deterministic: the same document always serializes to the same text. Presets, defaults, and exact output are expected to evolve and are not a compatibility guarantee — only public model/option/result _shapes_ (field names and types) are.
 - libass is the rendering baseline; renderer-specific extensions are initially out of scope.
 
 ## Conversion Rules

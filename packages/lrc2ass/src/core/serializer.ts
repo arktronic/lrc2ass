@@ -29,14 +29,19 @@ function formatAssTime(timeMs: number): string {
 }
 
 function formatScriptInfo(document: AssDocument, includeMetadata: boolean): string {
-  const lines = ['ScriptType: v4.00+', `PlayResX: ${document.scriptInfo.playResX}`, `PlayResY: ${document.scriptInfo.playResY}`];
+  const lines = [
+    'ScriptType: v4.00+',
+    `PlayResX: ${document.scriptInfo.playResX}`,
+    `PlayResY: ${document.scriptInfo.playResY}`,
+  ];
   if (includeMetadata && document.scriptInfo.title) {
     lines.push(`Title: ${document.scriptInfo.title}`);
   }
   return lines.join('\r\n');
 }
 
-const STYLE_FORMAT_LINE = 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding';
+const STYLE_FORMAT_LINE =
+  'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding';
 
 function formatStyle(style: AssDocument['styles'][number]): string {
   const values = [
@@ -67,7 +72,8 @@ function formatStyle(style: AssDocument['styles'][number]): string {
   return `Style: ${values.join(',')}`;
 }
 
-const EVENT_FORMAT_LINE = 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text';
+const EVENT_FORMAT_LINE =
+  'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text';
 
 function formatEvent(event: AssDocument['events'][number]): string {
   const values = [

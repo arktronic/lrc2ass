@@ -37,11 +37,10 @@ describe('planEvents', () => {
   });
 
   it('preserves base values when overrides are undefined and applies defined layout overrides', () => {
-    const document = planEvents(
-      { occurrences: [] },
-      options,
-      { karaokeEffect: undefined, layout: { alignment: 8, marginLeft: undefined } },
-    );
+    const document = planEvents({ occurrences: [] }, options, {
+      karaokeEffect: undefined,
+      layout: { alignment: 8, marginLeft: undefined },
+    });
 
     expect(document.styles[0]).toMatchObject({ alignment: 8, marginLeft: 10, marginRight: 10 });
   });
@@ -101,35 +100,42 @@ describe('planEvents', () => {
     ['instant', 'k'],
     ['sweep', 'kf'],
     ['sweep-outline', 'ko'],
-  ] as const)('uses %s karaoke tags with durations from quantized boundaries', (karaokeEffect, tag) => {
-    const normalized: NormalizedLyrics = {
-      occurrences: [{
-        startMs: 15,
-        endMs: 74,
-        text: 'onetwo',
-        segments: [
-          { text: 'one', timeMs: 0, location: { line: 1, column: 1 } },
-          { text: 'two', timeMs: 26, location: { line: 1, column: 4 } },
+  ] as const)(
+    'uses %s karaoke tags with durations from quantized boundaries',
+    (karaokeEffect, tag) => {
+      const normalized: NormalizedLyrics = {
+        occurrences: [
+          {
+            startMs: 15,
+            endMs: 74,
+            text: 'onetwo',
+            segments: [
+              { text: 'one', timeMs: 0, location: { line: 1, column: 1 } },
+              { text: 'two', timeMs: 26, location: { line: 1, column: 4 } },
+            ],
+          },
         ],
-      }],
-    };
+      };
 
-    const [event] = planEvents(normalized, { ...options, karaokeEffect }).events;
+      const [event] = planEvents(normalized, { ...options, karaokeEffect }).events;
 
-    expect(event).toMatchObject({ startMs: 20, endMs: 70, text: `{\\${tag}2}one{\\${tag}3}two` });
-  });
+      expect(event).toMatchObject({ startMs: 20, endMs: 70, text: `{\\${tag}2}one{\\${tag}3}two` });
+    },
+  );
 
   it('trims outer-edge whitespace from karaoke segments and collapses any resulting double-space at word boundaries', () => {
     const normalized: NormalizedLyrics = {
-      occurrences: [{
-        startMs: 0,
-        endMs: 100,
-        text: ' Foo  bar ',
-        segments: [
-          { text: ' Foo ', timeMs: 0, location: { line: 1, column: 1 } },
-          { text: ' bar ', timeMs: 50, location: { line: 1, column: 7 } },
-        ],
-      }],
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 100,
+          text: ' Foo  bar ',
+          segments: [
+            { text: ' Foo ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: ' bar ', timeMs: 50, location: { line: 1, column: 7 } },
+          ],
+        },
+      ],
     };
 
     const [event] = planEvents(normalized, { ...options, karaokeEffect: 'sweep' }).events;
@@ -137,17 +143,19 @@ describe('planEvents', () => {
     expect(event.text).toBe('{\\kf5}Foo{\\kf5} bar');
   });
 
-  it('keeps a segment\'s own trailing space as the word separator when the next segment has no leading space', () => {
+  it("keeps a segment's own trailing space as the word separator when the next segment has no leading space", () => {
     const normalized: NormalizedLyrics = {
-      occurrences: [{
-        startMs: 0,
-        endMs: 100,
-        text: 'Hello world',
-        segments: [
-          { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
-          { text: 'world', timeMs: 50, location: { line: 1, column: 7 } },
-        ],
-      }],
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 100,
+          text: 'Hello world',
+          segments: [
+            { text: 'Hello ', timeMs: 0, location: { line: 1, column: 1 } },
+            { text: 'world', timeMs: 50, location: { line: 1, column: 7 } },
+          ],
+        },
+      ],
     };
 
     const [event] = planEvents(normalized, { ...options, karaokeEffect: 'sweep' }).events;
@@ -158,70 +166,98 @@ describe('planEvents', () => {
   });
 
   it('encodes a leading enhanced-timestamp delay as an empty karaoke syllable', () => {
-    const [event] = planEvents({
-      occurrences: [{
-        startMs: 10_000,
-        endMs: 12_000,
-        text: 'Hello',
-        segments: [{ text: 'Hello', timeMs: 500, location: { line: 1, column: 1 } }],
-      }],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const [event] = planEvents(
+      {
+        occurrences: [
+          {
+            startMs: 10_000,
+            endMs: 12_000,
+            text: 'Hello',
+            segments: [{ text: 'Hello', timeMs: 500, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // First line, so its leading gap is always pre-sweep-eligible (no predecessor to compare against).
-    expect(event.text).toBe('{\\kf13}\u00B7{\\kf12}\u00B7{\\kf13}\u00B7{\\kf12}\u00B7 {\\kf150}Hello');
+    expect(event.text).toBe(
+      '{\\kf13}\u00B7{\\kf12}\u00B7{\\kf13}\u00B7{\\kf12}\u00B7 {\\kf150}Hello',
+    );
   });
 
   it('treats a leading whitespace-only segment as padding, not the first sung word', () => {
-    const [event] = planEvents({
-      occurrences: [{
-        startMs: 10_000,
-        endMs: 12_000,
-        text: ' Hello',
-        segments: [
-          { text: ' ', timeMs: 0, location: { line: 1, column: 1 } },
-          { text: 'Hello', timeMs: 500, location: { line: 1, column: 2 } },
+    const [event] = planEvents(
+      {
+        occurrences: [
+          {
+            startMs: 10_000,
+            endMs: 12_000,
+            text: ' Hello',
+            segments: [
+              { text: ' ', timeMs: 0, location: { line: 1, column: 1 } },
+              { text: 'Hello', timeMs: 500, location: { line: 1, column: 2 } },
+            ],
+          },
         ],
-      }],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // A whitespace-only leading segment is padding, not the first sung word, so its own timeMs (0)
     // is not used as the sung-start reference for pre-sweep gating.
-    expect(event.text).toBe('{\\kf13}\u00B7{\\kf12}\u00B7{\\kf13}\u00B7{\\kf12}\u00B7 {\\kf150}Hello');
+    expect(event.text).toBe(
+      '{\\kf13}\u00B7{\\kf12}\u00B7{\\kf13}\u00B7{\\kf12}\u00B7 {\\kf150}Hello',
+    );
   });
 
   it('defers a lyric event start past a leading whitespace-only segment to the first real sung word', () => {
-    const [event] = planEvents({
-      occurrences: [{
-        startMs: 0,
-        endMs: 20_000,
-        text: ' La la la',
-        segments: [
-          { text: ' ', timeMs: 0, location: { line: 1, column: 1 } },
-          { text: 'La la la', timeMs: 15_000, location: { line: 1, column: 2 } },
+    const [event] = planEvents(
+      {
+        occurrences: [
+          {
+            startMs: 0,
+            endMs: 20_000,
+            text: ' La la la',
+            segments: [
+              { text: ' ', timeMs: 0, location: { line: 1, column: 1 } },
+              { text: 'La la la', timeMs: 15_000, location: { line: 1, column: 2 } },
+            ],
+          },
         ],
-      }],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // effectiveSungStartMs skips a whitespace-only leading segment, so the 15_000ms delay to the
     // first real word still triggers deferral.
     expect(event.startMs).toBe(14_000);
-    expect(event.text).toBe('{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf500}La la la');
+    expect(event.text).toBe(
+      '{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf500}La la la',
+    );
   });
 
   it('defers a lyric event start when its leading enhanced-segment delay exceeds mainLinePreRollMs', () => {
-    const [event] = planEvents({
-      occurrences: [{
-        startMs: 0,
-        endMs: 20_000,
-        text: 'La la la',
-        segments: [{ text: 'La la la', timeMs: 15_000, location: { line: 1, column: 1 } }],
-      }],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const [event] = planEvents(
+      {
+        occurrences: [
+          {
+            startMs: 0,
+            endMs: 20_000,
+            text: 'La la la',
+            segments: [{ text: 'La la la', timeMs: 15_000, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // 15_000ms delay minus the 1_000ms default pre-roll = starts at 14_000ms instead of 0.
     expect(event.startMs).toBe(14_000);
     // First line, so its leading gap is always pre-sweep-eligible (no predecessor to compare against).
-    expect(event.text).toBe('{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf500}La la la');
+    expect(event.text).toBe(
+      '{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf500}La la la',
+    );
   });
 
   it('reorders lyrics chronologically by their deferred start so an interlude cannot overlap a later line', () => {
@@ -254,87 +290,109 @@ describe('planEvents', () => {
     expect(first?.startMs).toBe(9_000);
     // addInterludeEvents scans lyrics in chronological (deferred-start) order, so it only fills the
     // gap before "Second" and never overlaps "Second"'s own [5_000, 8_000] span.
-    expect(interlude).toEqual([{ layer: 0, startMs: 0, endMs: 5_000, style: 'Interlude', text: '\u266A Instrumental \u266A' }]);
+    expect(interlude).toEqual([
+      {
+        layer: 0,
+        startMs: 0,
+        endMs: 5_000,
+        style: 'Interlude',
+        text: '\u266A Instrumental \u266A',
+      },
+    ]);
   });
 
   it('shows a pre-sweep dot count-in when the gap since the previous line is at least mainLinePreRollMs', () => {
-    const [, second] = planEvents({
-      occurrences: [
-        { startMs: 0, endMs: 1_000, text: 'First' },
-        {
-          startMs: 1_000,
-          endMs: 3_000,
-          text: 'Second',
-          segments: [{ text: 'Second', timeMs: 1_000, location: { line: 1, column: 1 } }],
-        },
-      ],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const [, second] = planEvents(
+      {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'First' },
+          {
+            startMs: 1_000,
+            endMs: 3_000,
+            text: 'Second',
+            segments: [{ text: 'Second', timeMs: 1_000, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // Gap from First's endMs (1_000) to Second's sung start (2_000) is 1_000ms, meeting mainLinePreRollMs.
-    expect(second.text).toBe('{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf100}Second');
+    expect(second.text).toBe(
+      '{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7{\\kf25}\u00B7 {\\kf100}Second',
+    );
   });
 
   it('does not show a pre-sweep dot count-in when the gap since the previous line is too short', () => {
-    const [, second] = planEvents({
-      occurrences: [
-        { startMs: 0, endMs: 1_000, text: 'First' },
-        {
-          startMs: 1_000,
-          endMs: 2_500,
-          text: 'Second',
-          segments: [{ text: 'Second', timeMs: 500, location: { line: 1, column: 1 } }],
-        },
-      ],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const [, second] = planEvents(
+      {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'First' },
+          {
+            startMs: 1_000,
+            endMs: 2_500,
+            text: 'Second',
+            segments: [{ text: 'Second', timeMs: 500, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // Gap from First's endMs (1_000) to Second's sung start (1_500) is only 500ms, under mainLinePreRollMs.
     expect(second.text).toBe('{\\kf50}{\\kf100}Second');
   });
 
   it('does not show a pre-sweep dot count-in when an earlier, longer-overlapping line is still active', () => {
-    const [, , third] = planEvents({
-      occurrences: [
-        { startMs: 0, endMs: 10_000, text: 'First' },
-        {
-          startMs: 1_000,
-          endMs: 2_000,
-          text: 'Second',
-          segments: [{ text: 'Second', timeMs: 0, location: { line: 1, column: 1 } }],
-        },
-        {
-          startMs: 8_000,
-          endMs: 9_000,
-          text: 'Third',
-          segments: [{ text: 'Third', timeMs: 500, location: { line: 1, column: 1 } }],
-        },
-      ],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const [, , third] = planEvents(
+      {
+        occurrences: [
+          { startMs: 0, endMs: 10_000, text: 'First' },
+          {
+            startMs: 1_000,
+            endMs: 2_000,
+            text: 'Second',
+            segments: [{ text: 'Second', timeMs: 0, location: { line: 1, column: 1 } }],
+          },
+          {
+            startMs: 8_000,
+            endMs: 9_000,
+            text: 'Third',
+            segments: [{ text: 'Third', timeMs: 500, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // Gap from Second's endMs (2_000) to Third's sung start (8_500) is 6_500ms, meeting
     // mainLinePreRollMs, but First (ending at 10_000) is still active at 8_500, so there's no real gap.
     expect(third.text).toBe('{\\kf50}{\\kf50}Third');
   });
 
-  it('does not let an occurrence that never becomes visible suppress the next line\'s pre-sweep', () => {
-    const events = planEvents({
-      occurrences: [
-        { startMs: 0, endMs: 1_000, text: 'First' },
-        {
-          // Deferred to startMs 3_000 (2_000 sung-start delay - 1_000 mainLinePreRollMs) by its own
-          // segment timing, past its own endMs (1_400) — this occurrence is skipped and never shown.
-          startMs: 1_000,
-          endMs: 1_400,
-          text: 'Collapsed',
-          segments: [{ text: 'Collapsed', timeMs: 3_000, location: { line: 1, column: 1 } }],
-        },
-        {
-          startMs: 1_500,
-          endMs: 3_000,
-          text: 'Third',
-          segments: [{ text: 'Third', timeMs: 500, location: { line: 1, column: 1 } }],
-        },
-      ],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+  it("does not let an occurrence that never becomes visible suppress the next line's pre-sweep", () => {
+    const events = planEvents(
+      {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'First' },
+          {
+            // Deferred to startMs 3_000 (2_000 sung-start delay - 1_000 mainLinePreRollMs) by its own
+            // segment timing, past its own endMs (1_400) — this occurrence is skipped and never shown.
+            startMs: 1_000,
+            endMs: 1_400,
+            text: 'Collapsed',
+            segments: [{ text: 'Collapsed', timeMs: 3_000, location: { line: 1, column: 1 } }],
+          },
+          {
+            startMs: 1_500,
+            endMs: 3_000,
+            text: 'Third',
+            segments: [{ text: 'Third', timeMs: 500, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // Gap from First's endMs (1_000, the last actually-shown line) to Third's sung start (2_000) is
     // exactly mainLinePreRollMs (1_000), so Third should get a pre-sweep dot count-in. Using the
@@ -351,22 +409,25 @@ describe('planEvents', () => {
     // lands exactly on Y's endMs (3_000) - zero real gap - so X must not get one. Gating in source
     // order would process X first with no predecessor at all (wrongly granting it one) and would then
     // measure Y's gap against X's endMs instead (wrongly denying Y, the true first line, its own).
-    const events = planEvents({
-      occurrences: [
-        {
-          startMs: 500,
-          endMs: 4_000,
-          text: 'X',
-          segments: [{ text: 'X', timeMs: 2_500, location: { line: 1, column: 1 } }],
-        },
-        {
-          startMs: 0,
-          endMs: 3_000,
-          text: 'Y',
-          segments: [{ text: 'Y', timeMs: 1_500, location: { line: 1, column: 1 } }],
-        },
-      ],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const events = planEvents(
+      {
+        occurrences: [
+          {
+            startMs: 500,
+            endMs: 4_000,
+            text: 'X',
+            segments: [{ text: 'X', timeMs: 2_500, location: { line: 1, column: 1 } }],
+          },
+          {
+            startMs: 0,
+            endMs: 3_000,
+            text: 'Y',
+            segments: [{ text: 'Y', timeMs: 1_500, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     const x = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('X'));
     const y = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Y'));
@@ -378,23 +439,26 @@ describe('planEvents', () => {
     // A and B share a deferredStart of 1_500 and the same real predecessor gap (from Z's endMs of
     // 1_000), but A's own endMs (5_000) is far later than B's (1_600). If A's endMs were used as the
     // baseline for B's pre-sweep check (source order processes A first), B would wrongly be denied.
-    const events = planEvents({
-      occurrences: [
-        { startMs: 0, endMs: 1_000, text: 'Z' },
-        {
-          startMs: 1_500,
-          endMs: 5_000,
-          text: 'A',
-          segments: [{ text: 'A', timeMs: 500, location: { line: 1, column: 1 } }],
-        },
-        {
-          startMs: 1_500,
-          endMs: 1_600,
-          text: 'B',
-          segments: [{ text: 'B', timeMs: 500, location: { line: 1, column: 1 } }],
-        },
-      ],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const events = planEvents(
+      {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'Z' },
+          {
+            startMs: 1_500,
+            endMs: 5_000,
+            text: 'A',
+            segments: [{ text: 'A', timeMs: 500, location: { line: 1, column: 1 } }],
+          },
+          {
+            startMs: 1_500,
+            endMs: 1_600,
+            text: 'B',
+            segments: [{ text: 'B', timeMs: 500, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     const a = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('A'));
     const b = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('B'));
@@ -402,18 +466,21 @@ describe('planEvents', () => {
     expect(b?.text).toContain('\u00B7');
   });
 
-  it('falls back to the plain leading tag when the gap since the previous line qualifies but the line\'s own leading duration is too short for 4 dots', () => {
-    const [, second] = planEvents({
-      occurrences: [
-        { startMs: 0, endMs: 1_000, text: 'First' },
-        {
-          startMs: 5_000,
-          endMs: 6_000,
-          text: 'Second',
-          segments: [{ text: 'Second', timeMs: 10, location: { line: 1, column: 1 } }],
-        },
-      ],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+  it("falls back to the plain leading tag when the gap since the previous line qualifies but the line's own leading duration is too short for 4 dots", () => {
+    const [, second] = planEvents(
+      {
+        occurrences: [
+          { startMs: 0, endMs: 1_000, text: 'First' },
+          {
+            startMs: 5_000,
+            endMs: 6_000,
+            text: 'Second',
+            segments: [{ text: 'Second', timeMs: 10, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     // Gap from First's endMs (1_000) to Second's sung start (5_010) is 4_010ms, meeting mainLinePreRollMs,
     // but Second's own leading duration (10ms) is below the 40ms needed for 4 non-zero-duration dots.
@@ -433,7 +500,11 @@ describe('planEvents', () => {
       ],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', karaokeEffect: 'sweep' });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      karaokeEffect: 'sweep',
+    });
 
     const preview = document.events.find((event) => event.style === 'Preview');
     expect(preview?.text).toBe('{\\an8}\u00B7\u00B7\u00B7\u00B7 Second');
@@ -452,21 +523,30 @@ describe('planEvents', () => {
       ],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', karaokeEffect: 'sweep' });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      karaokeEffect: 'sweep',
+    });
 
     const preview = document.events.find((event) => event.style === 'Preview');
     expect(preview?.text).toBe('{\\an8}Second');
   });
 
   it('does not defer a lyric event start when there is no leading delay', () => {
-    const [event] = planEvents({
-      occurrences: [{
-        startMs: 5_000,
-        endMs: 8_000,
-        text: 'Hello',
-        segments: [{ text: 'Hello', timeMs: 0, location: { line: 1, column: 1 } }],
-      }],
-    }, { ...options, karaokeEffect: 'sweep' }).events;
+    const [event] = planEvents(
+      {
+        occurrences: [
+          {
+            startMs: 5_000,
+            endMs: 8_000,
+            text: 'Hello',
+            segments: [{ text: 'Hello', timeMs: 0, location: { line: 1, column: 1 } }],
+          },
+        ],
+      },
+      { ...options, karaokeEffect: 'sweep' },
+    ).events;
 
     expect(event.startMs).toBe(5_000);
   });
@@ -504,7 +584,11 @@ describe('planEvents', () => {
       ],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', karaokeEffect: 'sweep' });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      karaokeEffect: 'sweep',
+    });
 
     // Next lyric's effective sung-start is 35_000ms (20_000 + 15_000); preview shows for the
     // 4_000ms previewLeadMs before that, ending when the (pre-rolled) next lyric box begins. The
@@ -534,9 +618,20 @@ describe('planEvents', () => {
     // "Next line" reuses "Singer one"'s row (occurrence index 2 mod rowCount 2 = 0), so its preview
     // can't start until that row frees up at 1_000, even though "Singer two" started earlier at 0.
     expect(document.events.filter((event) => event.style === 'Preview')).toEqual([
-      { layer: -1, startMs: 1_000, endMs: 2_000, style: 'Preview', marginVertical: 114, text: '{\\an8}Next line' },
+      {
+        layer: -1,
+        startMs: 1_000,
+        endMs: 2_000,
+        style: 'Preview',
+        marginVertical: 114,
+        text: '{\\an8}Next line',
+      },
     ]);
-    expect(document.events.slice(0, 3).map((event) => event.style)).toEqual(['Lyrics', 'Lyrics', 'Preview']);
+    expect(document.events.slice(0, 3).map((event) => event.style)).toEqual([
+      'Lyrics',
+      'Lyrics',
+      'Preview',
+    ]);
     // Simultaneous occurrences alternate rows via marginVertical; alignment tag stays the same.
     const [singerOne, singerTwo] = document.events.filter((event) => event.style === 'Lyrics');
     expect(singerOne.text).toBe('{\\an8}Singer one');
@@ -557,7 +652,11 @@ describe('planEvents', () => {
 
     const lyricEvents = document.events.filter((event) => event.style === 'Lyrics');
     // Every row shares the same alignment tag; only the per-event MarginV distinguishes rows.
-    expect(lyricEvents.map((event) => event.text)).toEqual(['{\\an8}First', '{\\an8}Second', '{\\an8}Third']);
+    expect(lyricEvents.map((event) => event.text)).toEqual([
+      '{\\an8}First',
+      '{\\an8}Second',
+      '{\\an8}Third',
+    ]);
     expect(lyricEvents.map((event) => event.marginVertical)).toEqual([114, 144, 114]);
   });
 
@@ -607,8 +706,12 @@ describe('planEvents', () => {
     const document = planEvents(normalized, { ...options, preset: 'multi-line' });
 
     const preview = document.events.find((event) => event.style === 'Preview');
-    const secondLyric = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
-    expect(preview?.text.slice(0, preview.text.indexOf('}') + 1)).toBe(secondLyric?.text.slice(0, secondLyric.text.indexOf('}') + 1));
+    const secondLyric = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Second'),
+    );
+    expect(preview?.text.slice(0, preview.text.indexOf('}') + 1)).toBe(
+      secondLyric?.text.slice(0, secondLyric.text.indexOf('}') + 1),
+    );
   });
 
   it('emits no row alignment tag for the single-line preset', () => {
@@ -654,13 +757,15 @@ describe('planEvents', () => {
   });
 
   it('rejects a middle layout.rowAlignment (4-6) for the multi-line preset since MarginV would have no effect', () => {
-    expect(() => planEvents(
-      { occurrences: [] },
-      { ...options, preset: 'multi-line', layout: { ...options.layout, rowAlignment: 5 } },
-    )).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        { ...options, preset: 'multi-line', layout: { ...options.layout, rowAlignment: 5 } },
+      ),
+    ).toThrow(RangeError);
   });
 
-  it('derives the multi-line rows\' per-event marginVertical from layout.resolutionY and layout.rowHeightPx', () => {
+  it("derives the multi-line rows' per-event marginVertical from layout.resolutionY and layout.rowHeightPx", () => {
     const normalized: NormalizedLyrics = {
       occurrences: [
         { startMs: 0, endMs: 1_000, text: 'First' },
@@ -711,11 +816,17 @@ describe('planEvents', () => {
       ],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 3 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 3,
+    });
 
     // 4 rows share resolutionY 288 at rowHeightPx 30: topMargin = (288 - 4*30)/2 = 84.
     const lyricEvents = document.events.filter((event) => event.style === 'Lyrics');
-    expect(lyricEvents.map((event) => ({ text: event.text, marginVertical: event.marginVertical }))).toEqual([
+    expect(
+      lyricEvents.map((event) => ({ text: event.text, marginVertical: event.marginVertical })),
+    ).toEqual([
       { text: '{\\an8}First', marginVertical: 84 },
       { text: '{\\an8}Second', marginVertical: 114 },
       { text: '{\\an8}Third', marginVertical: 144 },
@@ -732,15 +843,33 @@ describe('planEvents', () => {
       ],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 2 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 2,
+    });
 
     // Both "Second" and "Third" fall within previewLeadMs (4000ms) of the song's start, and neither
     // needs to wait for a same-row predecessor (rowCount 3 > either occurrence's own index), so both
     // preview from t=0, genuinely overlapping in time on their own permanently-assigned rows.
     const previewEvents = document.events.filter((event) => event.style === 'Preview');
     expect(previewEvents).toEqual([
-      { layer: -1, startMs: 0, endMs: 1_000, style: 'Preview', marginVertical: 129, text: '{\\an8}Second' },
-      { layer: -1, startMs: 0, endMs: 2_000, style: 'Preview', marginVertical: 159, text: '{\\an8}Third' },
+      {
+        layer: -1,
+        startMs: 0,
+        endMs: 1_000,
+        style: 'Preview',
+        marginVertical: 129,
+        text: '{\\an8}Second',
+      },
+      {
+        layer: -1,
+        startMs: 0,
+        endMs: 2_000,
+        style: 'Preview',
+        marginVertical: 159,
+        text: '{\\an8}Third',
+      },
     ]);
   });
 
@@ -754,7 +883,11 @@ describe('planEvents', () => {
       ],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 3 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 3,
+    });
 
     // With 4 permanently-assigned rows and no same-row predecessor yet, Second/Third/Fourth all
     // preview from t=0 (bounded only by previewLeadMs, here effectively unconstrained since they're
@@ -776,9 +909,15 @@ describe('planEvents', () => {
 
     // rowCount 2: "Third" (index 2) shares "First"'s row (index 0), so its preview can't start
     // before "First"'s own Lyrics event ends at 1_000, even though previewLeadMs would allow t=0.
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 1,
+    });
 
-    const thirdPreview = document.events.find((event) => event.style === 'Preview' && event.text.endsWith('Third'));
+    const thirdPreview = document.events.find(
+      (event) => event.style === 'Preview' && event.text.endsWith('Third'),
+    );
     expect(thirdPreview?.startMs).toBe(1_000);
   });
 
@@ -795,15 +934,27 @@ describe('planEvents', () => {
     // and row 1 (never used before) has no predecessor to gate "Third" either - so, uncapped, both
     // would preview from t=3_000 on separate rows despite maxPreviewLines: 1.
     const document = planEvents(normalized, {
-      ...options, preset: 'multi-line', maxPreviewLines: 1, previewLeadMs: 2_000,
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 1,
+      previewLeadMs: 2_000,
     });
 
     const previewEvents = document.events.filter((event) => event.style === 'Preview');
     expect(previewEvents).toEqual([
-      { layer: -1, startMs: 3_000, endMs: 5_000, style: 'Preview', marginVertical: 114, text: '{\\an8}Second' },
+      {
+        layer: -1,
+        startMs: 3_000,
+        endMs: 5_000,
+        style: 'Preview',
+        marginVertical: 114,
+        text: '{\\an8}Second',
+      },
     ]);
 
-    const third = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Third'));
+    const third = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Third'),
+    );
     expect(third?.startMs).toBe(5_000);
   });
 
@@ -818,15 +969,25 @@ describe('planEvents', () => {
 
     // "First" ends at 1_000 and nothing shows again until 9_500 (Second's natural appearance,
     // 10_000 - 500ms previewLeadMs) — a genuine ~8.5s blank with every row empty.
-    const document = planEvents(
-      normalized,
-      { ...options, preset: 'multi-line', maxPreviewLines: 1, previewLeadMs: 500 },
-    );
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 1,
+      previewLeadMs: 500,
+    });
 
-    const first = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('First'));
-    const secondPreview = document.events.find((event) => event.style === 'Preview' && event.text.endsWith('Second'));
-    const second = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
-    const third = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Third'));
+    const first = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('First'),
+    );
+    const secondPreview = document.events.find(
+      (event) => event.style === 'Preview' && event.text.endsWith('Second'),
+    );
+    const second = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Second'),
+    );
+    const third = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Third'),
+    );
 
     // "Second" (and its preview) reset to the top row instead of continuing to row 1...
     expect(secondPreview?.marginVertical).toBe(first?.marginVertical);
@@ -851,8 +1012,12 @@ describe('planEvents', () => {
       interlude: { minGapMs: 20_000, strategy: 'text' },
     });
 
-    const first = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('First'));
-    const second = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
+    const first = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('First'),
+    );
+    const second = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Second'),
+    );
     expect(second?.marginVertical).toBe(first?.marginVertical);
   });
 
@@ -878,8 +1043,12 @@ describe('planEvents', () => {
       lingerMaxMs: 4_000,
     });
 
-    const second = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Second'));
-    const fifth = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Fifth'));
+    const second = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Second'),
+    );
+    const fifth = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Fifth'),
+    );
     expect(fifth?.marginVertical).toBe(second?.marginVertical);
   });
 
@@ -904,14 +1073,22 @@ describe('planEvents', () => {
       lingerMaxMs: 1_000,
     });
 
-    const first = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('First'));
-    const fifth = document.events.find((event) => event.style === 'Lyrics' && event.text.endsWith('Fifth'));
+    const first = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('First'),
+    );
+    const fifth = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text.endsWith('Fifth'),
+    );
     expect(fifth?.marginVertical).toBe(first?.marginVertical);
   });
 
   it('rejects a maxPreviewLines outside 1-8', () => {
-    expect(() => planEvents({ occurrences: [] }, { ...options, maxPreviewLines: 0 })).toThrow(RangeError);
-    expect(() => planEvents({ occurrences: [] }, { ...options, maxPreviewLines: 9 })).toThrow(RangeError);
+    expect(() => planEvents({ occurrences: [] }, { ...options, maxPreviewLines: 0 })).toThrow(
+      RangeError,
+    );
+    expect(() => planEvents({ occurrences: [] }, { ...options, maxPreviewLines: 9 })).toThrow(
+      RangeError,
+    );
   });
 
   it('rejects lyric occurrences whose peak concurrency exceeds the available rows', () => {
@@ -924,8 +1101,9 @@ describe('planEvents', () => {
       ],
     };
 
-    expect(() => planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 }))
-      .toThrow(RangeError);
+    expect(() =>
+      planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 }),
+    ).toThrow(RangeError);
   });
 
   it('accepts lyric occurrences whose peak concurrency exactly fills the available rows', () => {
@@ -937,8 +1115,9 @@ describe('planEvents', () => {
       ],
     };
 
-    expect(() => planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 }))
-      .not.toThrow();
+    expect(() =>
+      planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 }),
+    ).not.toThrow();
   });
 
   it('does not assign a row still occupied by an earlier, longer occurrence even when round-robin would land there', () => {
@@ -953,7 +1132,11 @@ describe('planEvents', () => {
       ],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'multi-line', maxPreviewLines: 1 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'multi-line',
+      maxPreviewLines: 1,
+    });
     const [first, second, third] = document.events.filter((event) => event.style === 'Lyrics');
 
     expect(third.marginVertical).not.toBe(first.marginVertical);
@@ -972,9 +1155,14 @@ describe('planEvents', () => {
         { startMs: 6_000, endMs: 7_000, text: 'Third' },
       ],
     };
-    const lingerOptions = { ...options, preset: 'multi-line' as const, maxPreviewLines: 1, previewLeadMs: 2_000 };
+    const lingerOptions = {
+      ...options,
+      preset: 'multi-line' as const,
+      maxPreviewLines: 1,
+      previewLeadMs: 2_000,
+    };
 
-    it('lets a line linger all the way to its row\'s next preview when the gap fits within lingerMaxMs', () => {
+    it("lets a line linger all the way to its row's next preview when the gap fits within lingerMaxMs", () => {
       const document = planEvents(normalized, { ...lingerOptions, lingerMaxMs: 10_000 });
 
       const first = document.events.find((event) => event.text.endsWith('First'));
@@ -1000,7 +1188,11 @@ describe('planEvents', () => {
     });
 
     it('lingers regardless of gap size when no interlude is configured', () => {
-      const document = planEvents(normalized, { ...lingerOptions, lingerMaxMs: 10_000, interlude: undefined });
+      const document = planEvents(normalized, {
+        ...lingerOptions,
+        lingerMaxMs: 10_000,
+        interlude: undefined,
+      });
 
       const first = document.events.find((event) => event.text.endsWith('First'));
       expect(first?.endMs).toBe(4_000);
@@ -1013,7 +1205,7 @@ describe('planEvents', () => {
       expect(first?.endMs).toBe(1_000);
     });
 
-    it('lingers past a row-local gap that isn\'t a real song-wide pause (other rows keep the screen busy)', () => {
+    it("lingers past a row-local gap that isn't a real song-wide pause (other rows keep the screen busy)", () => {
       // 3 rows (A/D/E-F cycle row0, B/F cycle row1, C cycles row2). A small real gap before "E"
       // (4000->5010) triggers a row-reset that diverts what would've been row1's turn to row0
       // instead, delaying "B"'s own row1 successor ("F") well past lingerMaxMs — a rotation
@@ -1165,19 +1357,29 @@ describe('planEvents', () => {
       occurrences: [{ startMs: 0, endMs: 1_000, text: 'Solo' }],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'single-line', fadeInMs: 200, fadeOutMs: 300 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'single-line',
+      fadeInMs: 200,
+      fadeOutMs: 300,
+    });
 
     expect(document.events).toEqual([
       { layer: 0, startMs: 0, endMs: 1_000, style: 'Lyrics', text: '{\\fad(200,300)}Solo' },
     ]);
   });
 
-  it('scales fadeInMs/fadeOutMs down so they never exceed an event\'s own duration', () => {
+  it("scales fadeInMs/fadeOutMs down so they never exceed an event's own duration", () => {
     const normalized: NormalizedLyrics = {
       occurrences: [{ startMs: 0, endMs: 500, text: 'Short' }],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'single-line', fadeInMs: 400, fadeOutMs: 400 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'single-line',
+      fadeInMs: 400,
+      fadeOutMs: 400,
+    });
 
     // fadeInMs + fadeOutMs (800) exceeds the 500ms event duration, so both are scaled by 500/800 = 0.625.
     expect(document.events).toEqual([
@@ -1185,12 +1387,17 @@ describe('planEvents', () => {
     ]);
   });
 
-  it('derives the scaled fadeOutMs as fadeInMs\'s complement so the rounded pair never exceeds the event duration', () => {
+  it("derives the scaled fadeOutMs as fadeInMs's complement so the rounded pair never exceeds the event duration", () => {
     const normalized: NormalizedLyrics = {
       occurrences: [{ startMs: 0, endMs: 10, text: 'Tiny' }],
     };
 
-    const document = planEvents(normalized, { ...options, preset: 'single-line', fadeInMs: 100, fadeOutMs: 300 });
+    const document = planEvents(normalized, {
+      ...options,
+      preset: 'single-line',
+      fadeInMs: 100,
+      fadeOutMs: 300,
+    });
 
     // fadeInMs + fadeOutMs (400) scales by 10/400 = 0.025 to 2.5/7.5; rounding each independently
     // would give fad(3,8) (sum 11 > the 10ms event duration), so fadeOutMs is derived as 10 - 3 = 7.
@@ -1212,56 +1419,99 @@ describe('planEvents', () => {
   });
 
   it('omits events that collapse after centisecond quantization', () => {
-    const document = planEvents({ occurrences: [{ startMs: 1, endMs: 4, text: 'Too short' }] }, options);
+    const document = planEvents(
+      { occurrences: [{ startMs: 1, endMs: 4, text: 'Too short' }] },
+      options,
+    );
     expect(document.events).toEqual([]);
   });
 
   it('rejects invalid planner options', () => {
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      interlude: { minGapMs: -1, strategy: 'none' },
-    })).toThrow(RangeError);
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      styles: { lyrics: { primaryColor: 'red' } },
-    })).toThrow(RangeError);
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      styles: { lyrics: { fontName: 'Unsafe, Font' } },
-    })).toThrow(RangeError);
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      styles: { lyrics: { fontName: 'Unsafe\nFont' } },
-    })).toThrow(RangeError);
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      layout: { ...options.layout, marginLeft: 200, marginRight: 200, resolutionX: 384 },
-    })).toThrow(RangeError);
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      preset: 'multi-line',
-      maxPreviewLines: 3,
-      layout: { ...options.layout, resolutionY: 50, rowHeightPx: 30 },
-    })).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          interlude: { minGapMs: -1, strategy: 'none' },
+        },
+      ),
+    ).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          styles: { lyrics: { primaryColor: 'red' } },
+        },
+      ),
+    ).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          styles: { lyrics: { fontName: 'Unsafe, Font' } },
+        },
+      ),
+    ).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          styles: { lyrics: { fontName: 'Unsafe\nFont' } },
+        },
+      ),
+    ).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          layout: { ...options.layout, marginLeft: 200, marginRight: 200, resolutionX: 384 },
+        },
+      ),
+    ).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          preset: 'multi-line',
+          maxPreviewLines: 3,
+          layout: { ...options.layout, resolutionY: 50, rowHeightPx: 30 },
+        },
+      ),
+    ).toThrow(RangeError);
   });
 
   it('rejects a row block that exactly equals resolutionY (would produce a top row MarginV of 0)', () => {
     // rowCount 2 * rowHeightPx 30 = 60 == resolutionY 60, an "exact fit" that must still be rejected.
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      preset: 'multi-line',
-      maxPreviewLines: 1,
-      layout: { ...options.layout, resolutionY: 60, rowHeightPx: 30 },
-    })).toThrow(RangeError);
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          preset: 'multi-line',
+          maxPreviewLines: 1,
+          layout: { ...options.layout, resolutionY: 60, rowHeightPx: 30 },
+        },
+      ),
+    ).toThrow(RangeError);
   });
 
   it('does not gate the row-block-height check on single-line, since rowHeightPx/maxPreviewLines are unused there', () => {
-    expect(() => planEvents({ occurrences: [] }, {
-      ...options,
-      preset: 'single-line',
-      maxPreviewLines: 3,
-      layout: { ...options.layout, resolutionY: 50, rowHeightPx: 30 },
-    })).not.toThrow();
+    expect(() =>
+      planEvents(
+        { occurrences: [] },
+        {
+          ...options,
+          preset: 'single-line',
+          maxPreviewLines: 3,
+          layout: { ...options.layout, resolutionY: 50, rowHeightPx: 30 },
+        },
+      ),
+    ).not.toThrow();
   });
 
   it('adds buffered text and countdown interludes', () => {
@@ -1317,8 +1567,9 @@ describe('planEvents', () => {
     // layout: resolutionX 384, marginLeft/Right 10 -> barLeft 10, barWidth 364; resolutionY 288,
     // barHeight 24 -> barTop 132; radius clamps to 8. Single-line preset interlude colors:
     // primaryColor #FFFFFF (fill), secondaryColor #808080 (track), outlineColor #000000 (border).
-    const path = 'm 8 0 l 356 0 b 364 0 364 0 364 8 l 364 16 b 364 24 364 24 356 24 l 8 24 '
-      + 'b 0 24 0 24 0 16 l 0 8 b 0 0 0 0 8 0';
+    const path =
+      'm 8 0 l 356 0 b 364 0 364 0 364 8 l 364 16 b 364 24 364 24 356 24 l 8 24 ' +
+      'b 0 24 0 24 0 16 l 0 8 b 0 0 0 0 8 0';
 
     expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([
       {
@@ -1333,9 +1584,10 @@ describe('planEvents', () => {
         startMs: 1_100,
         endMs: 4_900,
         style: 'Interlude',
-        text: '{\\p1\\an7\\pos(10,132)\\shad0\\1c&H00FFFFFF&\\3c&H00000000&'
-          + '\\clip(10,132,10,156)\\t(0,3800,\\clip(10,132,374,156))}'
-          + `${path}{\\p0}`,
+        text:
+          '{\\p1\\an7\\pos(10,132)\\shad0\\1c&H00FFFFFF&\\3c&H00000000&' +
+          '\\clip(10,132,10,156)\\t(0,3800,\\clip(10,132,374,156))}' +
+          `${path}{\\p0}`,
       },
     ]);
   });
@@ -1461,7 +1713,9 @@ describe('planEvents', () => {
       interlude: { minGapMs: 1_000, strategy: 'text', trailingLyricDurationMs: 500 },
     });
 
-    const second = document.events.find((event) => event.style === 'Lyrics' && event.text === 'Second');
+    const second = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text === 'Second',
+    );
     expect(second?.endMs).toBe(1_500);
   });
 
@@ -1484,7 +1738,9 @@ describe('planEvents', () => {
       interlude: { minGapMs: 1_000, strategy: 'text', trailingLyricDurationMs: 500 },
     });
 
-    const first = document.events.find((event) => event.style === 'Lyrics' && event.text === 'First');
+    const first = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text === 'First',
+    );
     expect(first?.endMs).toBe(10_000);
   });
 
@@ -1508,8 +1764,12 @@ describe('planEvents', () => {
       interlude: { minGapMs: 1_000, strategy: 'text', trailingLyricDurationMs: 0 },
     });
 
-    const first = document.events.find((event) => event.style === 'Lyrics' && event.text === 'First');
-    const collapsed = document.events.find((event) => event.style === 'Lyrics' && event.text === 'Collapsed');
+    const first = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text === 'First',
+    );
+    const collapsed = document.events.find(
+      (event) => event.style === 'Lyrics' && event.text === 'Collapsed',
+    );
     expect(collapsed).toBeUndefined();
     expect(first?.endMs).toBe(5_000);
   });
@@ -1585,7 +1845,10 @@ describe('planEvents', () => {
     const document = planEvents(normalized, {
       ...options,
       interlude: {
-        minGapMs: 3_000, marginMs: 2_000, strategy: 'text', trailingLyricDurationMs: 1_500,
+        minGapMs: 3_000,
+        marginMs: 2_000,
+        strategy: 'text',
+        trailingLyricDurationMs: 1_500,
       },
     });
 
@@ -1615,12 +1878,19 @@ describe('planEvents', () => {
       ...options,
       mainLinePreRollMs: 0,
       interlude: {
-        minGapMs: 0, marginMs: 6, strategy: 'text', trailingLyricDurationMs: 1_004,
+        minGapMs: 0,
+        marginMs: 6,
+        strategy: 'text',
+        trailingLyricDurationMs: 1_004,
       },
     });
 
     expect(document.events).toContainEqual({
-      layer: 0, startMs: 0, endMs: 1_020, style: 'Lyrics', text: 'First',
+      layer: 0,
+      startMs: 0,
+      endMs: 1_020,
+      style: 'Lyrics',
+      text: 'First',
     });
     expect(document.events.filter((event) => event.style === 'Interlude')).toEqual([]);
   });
