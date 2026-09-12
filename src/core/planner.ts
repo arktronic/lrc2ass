@@ -679,71 +679,87 @@ export function planEvents(
     quantizeBoundary(Math.max(occurrence.startMs, effectiveSungStartMs(occurrence) - options.mainLinePreRollMs)),
   );
 
-  // Deferred starts can invert the source order, so the chronological successor (needed by
-  // lyricEndMs below to judge interlude room) isn't always the next source-array occurrence. Only
-  // occurrences whose own span is non-empty before any trailing-duration clamp (which can only
-  // shrink it further) can end up emitted, so a collapsed one can't be a legitimate successor.
-  const chronologicalOrder = deferredStarts
+  // Deferred starts can invert source order, so successors must be resolved by start, not index.
+  const sortedByDeferredStart = deferredStarts
     .map((_, index) => index)
-    .filter((index) => quantizeBoundary(normalized.occurrences[index].endMs) > deferredStarts[index])
     .sort((left, right) => deferredStarts[left] - deferredStarts[right]);
+
+  // Right-to-left pass: visibility and successor are resolved together, since a
+  // trailingLyricDurationMs clamp can collapse a candidate that looked visible unclamped, so only
+  // an already-resolved-visible successor may be handed further back. Tied deferred starts (e.g.
+  // duet lines) share the next strictly-later visible start instead of each other.
+  const isVisible: boolean[] = new Array(deferredStarts.length).fill(false);
+  const resolvedEndMs: number[] = new Array(deferredStarts.length);
   const nextChronologicalStartMs: Array<number | undefined> = new Array(deferredStarts.length);
-  // chronologicalOrder can hold several occurrences with the same deferred start (e.g. duet
-  // lines); using the very next entry as a successor would then use a tied sibling's own start as
-  // the gap boundary, so trailingLyricDurationMs would never apply to any but the last tied
-  // member. Walk backward instead, reusing the next strictly-later start across a whole tied group.
-  let nextStrictlyLaterStartMs: number | undefined;
+  let nextVisibleStartMs: number | undefined;
+  let groupHasVisibleMember = false;
   let previousStartMs: number | undefined;
-  for (let position = chronologicalOrder.length - 1; position >= 0; position--) {
-    const sourceIndex = chronologicalOrder[position];
+  for (let position = sortedByDeferredStart.length - 1; position >= 0; position--) {
+    const sourceIndex = sortedByDeferredStart[position];
     const startMs = deferredStarts[sourceIndex];
     if (previousStartMs !== undefined && startMs !== previousStartMs) {
-      nextStrictlyLaterStartMs = previousStartMs;
+      if (groupHasVisibleMember) {
+        nextVisibleStartMs = previousStartMs;
+      }
+      groupHasVisibleMember = false;
     }
-    nextChronologicalStartMs[sourceIndex] = nextStrictlyLaterStartMs;
+    const endMs = quantizeBoundary(lyricEndMs(normalized.occurrences[sourceIndex], nextVisibleStartMs, options));
+    if (endMs > startMs) {
+      isVisible[sourceIndex] = true;
+      resolvedEndMs[sourceIndex] = endMs;
+      groupHasVisibleMember = true;
+    }
+    nextChronologicalStartMs[sourceIndex] = nextVisibleStartMs;
     previousStartMs = startMs;
   }
+  const chronologicalOrder = sortedByDeferredStart.filter((index) => isVisible[index]);
 
-  // Running max of all preceding *emitted* events' endMs (not just the immediately preceding one,
-  // and not occurrences collapsed by quantization, which were never actually shown), used by the
-  // pre-sweep gate below since overlapping lines can make an earlier occurrence outlast a later,
-  // shorter one. Walked via chronologicalOrder, not source order, since deferred starts can make
-  // a later source occurrence display before an earlier one.
+  // Running max of all preceding emitted events' endMs, since overlapping lines can make an
+  // earlier occurrence outlast a later, shorter one.
   let latestActiveEndMs = -Infinity;
-  for (const index of chronologicalOrder) {
-    const occurrence = normalized.occurrences[index];
-    const startMs = deferredStarts[index];
-    const nextStartMs = nextChronologicalStartMs[index];
-    const endMs = quantizeBoundary(lyricEndMs(occurrence, nextStartMs, options));
-    if (endMs <= startMs) {
-      continue;
+  let groupPosition = 0;
+  while (groupPosition < chronologicalOrder.length) {
+    const groupStartMs = deferredStarts[chronologicalOrder[groupPosition]];
+    let groupEnd = groupPosition;
+    while (groupEnd < chronologicalOrder.length && deferredStarts[chronologicalOrder[groupEnd]] === groupStartMs) {
+      groupEnd++;
     }
 
-    // The pre-sweep count-in only earns its keep when there was genuine dead air before this
-    // line; an earlier, longer-overlapping occurrence still being active also suppresses it, not
-    // just the immediately preceding one. The very first line has no predecessor, so a leading
-    // instrumental gap always counts.
-    const showPreSweep = effectiveSungStartMs(occurrence) - latestActiveEndMs >= options.mainLinePreRollMs;
+    // Tied starts (e.g. duet lines) share the same preceding dead air, so all must be judged
+    // against the same prior active-end value rather than each other's endMs.
+    const priorActiveEndMs = latestActiveEndMs;
+    let groupMaxEndMs = latestActiveEndMs;
+    for (let position = groupPosition; position < groupEnd; position++) {
+      const index = chronologicalOrder[position];
+      const occurrence = normalized.occurrences[index];
+      const startMs = deferredStarts[index];
+      const endMs = resolvedEndMs[index];
 
-    const { text, showedPreSweep } = karaokeText(
-      occurrence.text,
-      occurrence.segments,
-      occurrence.startMs,
-      startMs,
-      endMs,
-      options.karaokeEffect,
-      showPreSweep,
-    );
-    const event: AssEvent = {
-      layer: 0,
-      startMs,
-      endMs,
-      style: LYRIC_STYLE_NAME,
-      text,
-    };
-    lyricOccurrences.push({ event, occurrence, showedPreSweep });
-    events.push(event);
-    latestActiveEndMs = Math.max(latestActiveEndMs, endMs);
+      // Pre-sweep needs genuine dead air before this line, not just no immediate predecessor.
+      const showPreSweep = effectiveSungStartMs(occurrence) - priorActiveEndMs >= options.mainLinePreRollMs;
+
+      const { text, showedPreSweep } = karaokeText(
+        occurrence.text,
+        occurrence.segments,
+        occurrence.startMs,
+        startMs,
+        endMs,
+        options.karaokeEffect,
+        showPreSweep,
+      );
+      const event: AssEvent = {
+        layer: 0,
+        startMs,
+        endMs,
+        style: LYRIC_STYLE_NAME,
+        text,
+      };
+      lyricOccurrences.push({ event, occurrence, showedPreSweep });
+      events.push(event);
+      groupMaxEndMs = Math.max(groupMaxEndMs, endMs);
+    }
+    latestActiveEndMs = groupMaxEndMs;
+    groupPosition = groupEnd;
   }
 
   // Deferred starts can invert the source order (a line with a long leading delay may end up

@@ -374,6 +374,34 @@ describe('planEvents', () => {
     expect(y?.text).toContain('\u00B7');
   });
 
+  it('grants a tied deferred-start pair the same pre-sweep verdict, regardless of which is emitted first', () => {
+    // A and B share a deferredStart of 1_500 and the same real predecessor gap (from Z's endMs of
+    // 1_000), but A's own endMs (5_000) is far later than B's (1_600). If A's endMs were used as the
+    // baseline for B's pre-sweep check (source order processes A first), B would wrongly be denied.
+    const events = planEvents({
+      occurrences: [
+        { startMs: 0, endMs: 1_000, text: 'Z' },
+        {
+          startMs: 1_500,
+          endMs: 5_000,
+          text: 'A',
+          segments: [{ text: 'A', timeMs: 500, location: { line: 1, column: 1 } }],
+        },
+        {
+          startMs: 1_500,
+          endMs: 1_600,
+          text: 'B',
+          segments: [{ text: 'B', timeMs: 500, location: { line: 1, column: 1 } }],
+        },
+      ],
+    }, { ...options, karaokeEffect: 'sweep' }).events;
+
+    const a = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('A'));
+    const b = events.find((event) => event.style === 'Lyrics' && event.text.endsWith('B'));
+    expect(a?.text).toContain('\u00B7');
+    expect(b?.text).toContain('\u00B7');
+  });
+
   it('falls back to the plain leading tag when the gap since the previous line qualifies but the line\'s own leading duration is too short for 4 dots', () => {
     const [, second] = planEvents({
       occurrences: [
@@ -1442,9 +1470,7 @@ describe('planEvents', () => {
       occurrences: [
         { startMs: 0, endMs: 10_000, text: 'First' },
         {
-          // Deferred to startMs 12_000 (3_000 sung-start delay - 1_000 mainLinePreRollMs) by its
-          // own segment timing, past its own endMs (10_400) — this occurrence is skipped and never
-          // shown, so it must not be treated as "First"'s chronological successor.
+          // Deferred past its own endMs by segment timing, so it's never shown.
           startMs: 10_000,
           endMs: 10_400,
           text: 'Collapsed',
@@ -1460,6 +1486,32 @@ describe('planEvents', () => {
 
     const first = document.events.find((event) => event.style === 'Lyrics' && event.text === 'First');
     expect(first?.endMs).toBe(10_000);
+  });
+
+  it('truncates a lyric against its real next visible successor, not an in-between candidate that only collapses once its own trailingLyricDurationMs clamp is applied', () => {
+    const normalized: NormalizedLyrics = {
+      occurrences: [
+        {
+          startMs: 0,
+          endMs: 6_000,
+          text: 'First',
+          segments: [{ text: 'First', timeMs: 5_000, location: { line: 1, column: 1 } }],
+        },
+        // Raw endMs looks fine, but trailingLyricDurationMs: 0 clamps it to its own start.
+        { startMs: 6_000, endMs: 6_500, text: 'Collapsed' },
+        { startMs: 20_000, endMs: 21_000, text: 'Third' },
+      ],
+    };
+
+    const document = planEvents(normalized, {
+      ...options,
+      interlude: { minGapMs: 1_000, strategy: 'text', trailingLyricDurationMs: 0 },
+    });
+
+    const first = document.events.find((event) => event.style === 'Lyrics' && event.text === 'First');
+    const collapsed = document.events.find((event) => event.style === 'Lyrics' && event.text === 'Collapsed');
+    expect(collapsed).toBeUndefined();
+    expect(first?.endMs).toBe(5_000);
   });
 
   it('applies trailingLyricDurationMs to every member of a tied deferred-start group, not just the last', () => {
