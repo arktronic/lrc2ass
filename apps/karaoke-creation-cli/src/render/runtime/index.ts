@@ -159,16 +159,17 @@ export async function renderKaraoke(options: RuntimeOptions): Promise<void> {
   });
   const output = new Output({
     format: new Mp4OutputFormat(),
+    // 16 MiB default chunking; larger chunks (64/128 MiB) showed no speedup and 192 MiB OOM'd.
     target: new StreamTarget(outputStream, { chunked: true }),
   });
+  // Explicit constant bitrate for finer control than 'medium'/'high' quality steps, and to avoid
+  // VBR dips (source of blocking artifacts) on the visualizer's high-entropy frames.
   const videoSource = new CanvasSource(compositeCanvas, {
     codec: 'avc',
-    quality: new Quality('high'),
+    quality: new Quality({ bitrate: 16_777_216, bitrateMode: 'constant' }),
   });
   output.addVideoTrack(videoSource);
 
-  // Audio is re-encoded from the decoded buffer rather than transmuxed from the source file;
-  // this keeps the pipeline entirely in Mediabunny's documented API surface at the cost of a re-encode.
   const audioSource = new AudioBufferSource({ codec: 'aac', quality: new Quality('high') });
   output.addAudioTrack(audioSource);
 
